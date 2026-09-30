@@ -87,6 +87,45 @@ Ao reabrir pela CLI um workspace já cadastrado, `addProject` agora usa
 rotina de ativação/observação e sem emitir `workspaceSwitch`; por isso o
 primeiro ensaio de troca pela CLI não media o caminho real da interface.
 
+## Reprodução com cópia do AppData
+
+Copiamos `projects.json`, `layouts.json` e `realms.json` do perfil de produção
+para o perfil debug, após fazer backup do estado debug. O perfil de produção
+ficou intocado. A cópia contém 9 projetos e 11 layouts; a rail mostra 37
+entradas incluindo worktrees. O projeto inicialmente selecionado restaurou 7
+terminais, e outro layout salvo restaurou 3. O estado salvo contém 8 abas que
+retomam sessões do Claude; por isso restaurar esse workspace também inicia
+processos de agente, aproximando o ensaio do uso real.
+
+Na versão com varredura CIM completa, algumas amostras de `processScan`
+chegaram a 8 s. Ao alternar entre os layouts de 7 e 3 terminais, o próximo
+frame levou tipicamente 62–105 ms; o build debug teve um frame de 249 ms.
+Os frames lentos foram dominados por `build` (por exemplo 55–96 ms), com
+`raster` na faixa de 2–4 ms. Isso reforça a hipótese de custo de árvore/layout
+para troca e resize, além da contenção criada pela observação de processos.
+
+O provedor Windows agora enumera PID, pai e nome nativamente com Toolhelp,
+restringe a análise aos descendentes dos terminais e consulta a linha de
+comando via CIM apenas para novos candidatos a agente. Detalhes são guardados
+por PID e novos candidatos vistos em sequência são agrupados por 3 s. A
+enumeração nativa roda em um isolate separado para não ocupar o frame. No
+mesmo workspace, as varreduras estáveis caíram para cerca de 23–50 ms. Durante
+a restauração ainda ocorreram três consultas CIM acima de 1 s, com pico de
+5,6 s: a detecção inicial de agentes continua tendo custo alto, embora não
+haja mais varredura CIM completa periódica. O perfil debug original foi
+restaurado após o ensaio e conferido por hash.
+
+Depois da inicialização, oito novas trocas entre os layouts reais levaram
+54–99 ms até o próximo frame; as varreduras na mesma janela ficaram em
+26–43 ms. O custo visual, portanto, permanece mesmo sem uma consulta CIM
+longa concorrendo com a troca. O `IndexedStack` ainda mantém todas as árvores
+montadas e faz layout das views ocultas quando as constraints mudam.
+
+Codex estava instalado e aberto, mas a amostra de CPU de 5 s não mostrou
+carga contínua dos seus processos. A presença dele aumenta o número de
+processos que a consulta antiga percorria; os dados não sustentam atribuir
+todo o travamento ao Codex.
+
 ## Próxima medição visual
 
 Em um build **profile**, iniciar com `COCKPIT_PERF=1`. Repetir com 5 e 10
