@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:cockpit/app/cockpit/domain/contracts/terminal_gateway.dart';
 import 'package:cockpit/app/cockpit/domain/contracts/terminal_scrollback_store.dart';
 import 'package:cockpit/app/cockpit/domain/contracts/terminal_status_server.dart';
+import 'package:cockpit/app/core/data/diagnostics/performance_diagnostics.dart';
 import 'package:cockpit/app/core/domain/entities/harness.dart';
 import 'package:cockpit/app/core/terminal/secret_redactor.dart';
 import 'package:cockpit/app/cockpit/domain/services/terminal_harness_monitor.dart';
@@ -56,6 +57,9 @@ class TerminalSession extends PaneItem {
         defaultInputHandler,
       ]),
     );
+    if (PerformanceDiagnostics.instance.enabled) {
+      _firstOutputClock = Stopwatch()..start();
+    }
 
     // Replay do scrollback salvo (restauração): entra na fila ANTES de subir o
     // shell, então a saída viva nasce logo abaixo. No Ghostty a fila só é
@@ -93,6 +97,15 @@ class TerminalSession extends PaneItem {
     _coalescer = PtyOutputCoalescer(
       onAcknowledge: _gateway.acknowledgeOutput,
       onFlush: (batch) {
+        final firstOutputClock = _firstOutputClock;
+        if (firstOutputClock != null) {
+          _firstOutputClock = null;
+          PerformanceDiagnostics.instance.record(
+            PerfMetric.terminalFirstOutput,
+            {PerfField.durationUs: firstOutputClock.elapsedMicroseconds},
+            force: true,
+          );
+        }
         _kitty.feed(batch); // observa push/pop do kitty antes de renderizar.
         terminal.write(batch);
         _record(batch); // grava o scrollback pra replay no próximo boot.
@@ -376,6 +389,7 @@ class TerminalSession extends PaneItem {
   /// é lido no host pelo gateway, já com a aba viva).
   void updateRedaction(Iterable<String> secrets) => _redactor.update(secrets);
   late final PtyOutputCoalescer _coalescer;
+  Stopwatch? _firstOutputClock;
 
   // --- Persistência do scrollback (replay no próximo boot) --------------------
   // Grava a saída DECODIFICADA (após o `Utf8Decoder` em streaming → sem cortar

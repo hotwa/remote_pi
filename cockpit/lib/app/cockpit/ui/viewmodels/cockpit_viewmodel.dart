@@ -3533,9 +3533,7 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
     // workspaces distintos em realms diferentes (ids são UUIDs).
     for (final existing in _projectList) {
       if (existing.path == path && existing.realmId == realmCtrl.activeId) {
-        _selectedProjectId = existing.id;
-        unawaited(_projects.saveLastSelected(realmCtrl.activeId, existing.id));
-        notifyListeners();
+        selectProject(existing.id);
         return existing;
       }
     }
@@ -5267,6 +5265,10 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
     _setActiveTree(t);
     _focused[projectId] = targetPaneId;
     _ensureFocusValid();
+    PerformanceDiagnostics.instance.timeToNextFrame(
+      PerfMetric.terminalDockFrame,
+      tabs: _sessions.length,
+    );
     notifyListeners();
   }
 
@@ -5320,6 +5322,10 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
     _setActiveTree(t);
     _focused[projectId] = newLeaf.id;
     _ensureFocusValid();
+    PerformanceDiagnostics.instance.timeToNextFrame(
+      PerfMetric.terminalDockFrame,
+      tabs: _sessions.length,
+    );
     notifyListeners();
   }
 
@@ -5350,6 +5356,10 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
         ),
       );
       _focused[projectId] = srcPaneId;
+      PerformanceDiagnostics.instance.timeToNextFrame(
+        PerfMetric.terminalDockFrame,
+        tabs: _sessions.length,
+      );
       notifyListeners();
       return;
     }
@@ -5378,6 +5388,10 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
     _setActiveTree(t);
     _focused[projectId] = targetPaneId;
     _ensureFocusValid();
+    PerformanceDiagnostics.instance.timeToNextFrame(
+      PerfMetric.terminalDockFrame,
+      tabs: _sessions.length,
+    );
     notifyListeners();
   }
 
@@ -5572,6 +5586,11 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
     _setActiveTree(
       setFrac(tree, splitId, (split.frac + dFrac).clamp(0.16, 0.84)),
     );
+    PerformanceDiagnostics.instance.timeToNextFrame(
+      PerfMetric.terminalResizeFrame,
+      tabs: _sessions.length,
+      coalesce: true,
+    );
     notifyListeners();
   }
 
@@ -5694,6 +5713,9 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
     TerminalProfile? profile,
     TerminalEngine? engine,
   }) {
+    final openWatch = PerformanceDiagnostics.instance.enabled
+        ? (Stopwatch()..start())
+        : null;
     // `.env.cockpit` do workspace (raiz + cada root em multi-root), lido a
     // cada spawn: aba nova já vê a chave nova. Só local: no remoto o arquivo
     // mora no host e este processo não o enxerga.
@@ -5771,6 +5793,16 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
     built = t;
     _sessions[t.id] = t;
     if (!remote) _warnTrackedWorkspaceEnv(t, projectId);
+    if (openWatch != null && !_restoring) {
+      PerformanceDiagnostics.instance.record(PerfMetric.terminalOpen, {
+        PerfField.durationUs: openWatch.elapsedMicroseconds,
+        PerfField.tabs: _sessions.length,
+      }, force: true);
+      PerformanceDiagnostics.instance.timeToNextFrame(
+        PerfMetric.terminalOpenFrame,
+        tabs: _sessions.length,
+      );
+    }
     return t;
   }
 
