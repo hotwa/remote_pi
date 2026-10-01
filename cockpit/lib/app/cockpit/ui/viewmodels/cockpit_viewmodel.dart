@@ -417,6 +417,11 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
   /// Árvore de splits por projeto (workspace).
   final Map<String, PaneNode> _trees = <String, PaneNode>{};
 
+  /// Evita restaurar o mesmo layout duas vezes se a seleção mudar durante o load.
+  final Map<String, Future<void>> _projectActivations =
+      <String, Future<void>>{};
+  int _projectSelectionGeneration = 0;
+
   /// Pane focada por projeto.
   final Map<String, String> _focused = <String, String>{};
 
@@ -473,8 +478,8 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
   /// layout salvo (e daí no default expandido) enquanto não houver override.
   final Map<String, bool> _worktreesExpanded = <String, bool>{};
 
-  /// `true` enquanto reconstruímos um projeto — evita gravar layout meio-feito.
-  bool _restoring = false;
+  /// Quantos projetos estão em restore — evita gravar layout meio-feito.
+  int _restoringCount = 0;
 
   /// Worktrees (forks) por workspace raiz, na ordem do `git worktree list`
   /// (decisão 20). Reconciliado contra o git nos ganchos de refresh; a
@@ -4593,7 +4598,11 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
 
   void selectProject(String id) {
     if (_selectedProjectId == id) return;
-    PerformanceDiagnostics.instance.timeToNextFrame(PerfMetric.workspaceSwitch);
+    final diagnostics = PerformanceDiagnostics.instance;
+    diagnostics.timeToNextFrame(PerfMetric.workspaceSwitch);
+    final readyClock = diagnostics.enabled ? (Stopwatch()..start()) : null;
+    final cold = !_trees.containsKey(id);
+    final selection = ++_projectSelectionGeneration;
     // Seleção vinda de fora do recorte atual (clique em notificação, CLI
     // `cockpit open`, restauração): troca o realm ativo junto — selecionar um
     // workspace de outro realm sem trazê-lo deixaria o rail "sem seleção".
@@ -4620,7 +4629,14 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
     // por realm: cada realm lembra a própria última seleção.
     unawaited(_projects.saveLastSelected(realmCtrl.activeId, _rootOf(id)));
     _clearFocusedNotification();
-    unawaited(_activateProject(id)); // reconstrói (lazy) se ainda não ativo
+    final activation = _activateProject(id); // reconstrói (lazy) se necessário
+    if (readyClock != null) {
+      unawaited(
+        _measureProjectReady(id, selection, cold, readyClock, activation),
+      );
+    } else {
+      unawaited(activation);
+    }
     git.watchProject(id); // segue o working tree do novo projeto ao vivo
     unawaited(git.refresh(id)); // pode ter mudado desde a última vez
     unawaited(_refreshWorktrees(_rootOf(id))); // reflete worktrees externas
@@ -5395,6 +5411,45 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
     notifyListeners();
   }
 
+  /// Inclui o restore assíncrono e o primeiro frame com a árvore carregada.
+  /// `workspaceSwitch` acima mede apenas o primeiro frame após a seleção, que
+  /// pode ser uma tela ainda vazia quando o projeto é ativado pela primeira vez.
+  Future<void> _measureProjectReady(
+    String id,
+    int selection,
+    bool cold,
+    Stopwatch clock,
+    Future<void> activation,
+  ) async {
+    try {
+      await activation;
+    } on Object catch (error, stack) {
+      DiagnosticsLog.instance.logError('activate-project', error, stack);
+      return;
+    }
+    if (_selectedProjectId != id || _projectSelectionGeneration != selection) {
+      return;
+    }
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (_selectedProjectId != id ||
+          _projectSelectionGeneration != selection) {
+        return;
+      }
+      final tree = _trees[id];
+      final tabs = tree == null
+          ? 0
+          : leaves(
+              tree,
+            ).fold<int>(0, (count, leaf) => count + leaf.tabs.length);
+      PerformanceDiagnostics.instance.record(PerfMetric.workspaceReadyFrame, {
+        PerfField.durationUs: clock.elapsedMicroseconds,
+        PerfField.tabs: tabs,
+        PerfField.cold: cold ? 1 : 0,
+      }, force: true);
+    });
+    SchedulerBinding.instance.scheduleFrame();
+  }
+
   /// Qual aba fica ativa numa folha após [removedId] sair (mantém a ativa se não
   /// for a removida; senão pega a anterior).
   String _activeAfter(LeafPane leaf, String removedId, List<String> remaining) {
@@ -5476,7 +5531,7 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
     _ensureFocusValid(projectId);
     notifyListeners();
     // `notifyListeners` só agenda a gravação do workspace selecionado.
-    if (!_restoring && projectId != _selectedProjectId) {
+    if (_restoringCount == 0 && projectId != _selectedProjectId) {
       _scheduleSave(projectId);
     }
   }
@@ -5793,7 +5848,7 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
     built = t;
     _sessions[t.id] = t;
     if (!remote) _warnTrackedWorkspaceEnv(t, projectId);
-    if (openWatch != null && !_restoring) {
+    if (openWatch != null && _restoringCount == 0) {
       PerformanceDiagnostics.instance.record(PerfMetric.terminalOpen, {
         PerfField.durationUs: openWatch.elapsedMicroseconds,
         PerfField.tabs: _sessions.length,
@@ -6087,8 +6142,26 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
 
   /// Ativa um projeto (sobe os processos). Se há layout salvo, reconstrói a
   /// árvore + sessões; senão, abre uma pane vazia. Idempotente: já-ativo é no-op.
-  Future<void> _activateProject(String id) async {
-    if (_trees.containsKey(id)) return;
+  Future<void> _activateProject(String id) {
+    final pending = _projectActivations[id];
+    if (pending != null) return pending;
+    if (_trees.containsKey(id)) return Future<void>.value();
+    final done = Completer<void>();
+    _projectActivations[id] = done.future;
+    unawaited(() async {
+      try {
+        await _activateProjectOnce(id);
+        done.complete();
+      } on Object catch (error, stack) {
+        done.completeError(error, stack);
+      } finally {
+        _projectActivations.remove(id);
+      }
+    }());
+    return done.future;
+  }
+
+  Future<void> _activateProjectOnce(String id) async {
     // Projeto que entrou na lista DEPOIS do boot — todo fork de worktree é
     // assim, local ou remoto: eles são derivados do `git worktree list`, que
     // só responde depois das duas passagens de carga do `init`. Sem esta
@@ -6118,11 +6191,11 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
       notifyListeners();
       return;
     }
-    _restoring = true;
+    _restoringCount++;
     try {
       await _restoreProject(id, doc);
     } finally {
-      _restoring = false;
+      _restoringCount--;
     }
     notifyListeners();
   }
@@ -6908,7 +6981,7 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
   @override
   void notifyListeners() {
     super.notifyListeners();
-    if (_restoring) return;
+    if (_restoringCount > 0) return;
     final id = _selectedProjectId;
     if (id != null && _trees.containsKey(id)) _scheduleSave(id);
   }

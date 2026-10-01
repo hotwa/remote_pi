@@ -31,6 +31,9 @@ enum PerfMetric {
   /// Troca de workspace → próximo frame pintado (`durationUs`).
   workspaceSwitch,
 
+  /// Seleção → restauração concluída e primeiro frame com o projeto (`durationUs`).
+  workspaceReadyFrame,
+
   /// Troca de aba → próximo frame pintado (`durationUs`).
   tabSwitch,
 
@@ -41,6 +44,10 @@ enum PerfMetric {
   terminalOpenFrame,
   terminalDockFrame,
   terminalResizeFrame,
+
+  /// Ação dos controles da janela: 1=minimizar, 2=maximizar, 3=fechar.
+  /// `phase`: 0=clique entregue, 1=concluído, 2=erro.
+  windowControl,
 }
 
 enum PerfField {
@@ -51,6 +58,8 @@ enum PerfField {
   rssBytes,
   pending,
   sources,
+  processedChars,
+  hiddenChars,
   sessions,
   active,
   queued,
@@ -60,6 +69,9 @@ enum PerfField {
   p95Us,
   maxUs,
   tabs,
+  cold,
+  action,
+  phase,
 }
 
 /// Amostra pronta pro sink: nome da métrica + campos numéricos.

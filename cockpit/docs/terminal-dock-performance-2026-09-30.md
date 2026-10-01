@@ -135,3 +135,45 @@ terminais no mesmo workspace: (a) arrastar uma aba entre panes e encaixá-la;
 DevTools. Isso distinguirá o custo do rebuild global do custo de layout das
 views ocultas. A automação de interface disponível nesta sessão não permite
 controlar aplicativos de terminal, então esse gesto visual não foi medido aqui.
+
+## Refinamento em 2026-10-01: projeto frio, atividade e saída
+
+O relato atualizado distingue a primeira carga dos terminais de outro projeto
+da piora com sessões em uso. A métrica anterior `workspaceSwitch` terminava no
+primeiro frame após selecionar o projeto, mesmo quando `_activateProject`
+ainda restaurava sessões em segundo plano. Portanto os números de troca acima
+não representam necessariamente o tempo até os terminais aparecerem. A nova
+`workspaceReadyFrame` termina no primeiro frame após a ativação e registra
+`cold` (1 = primeira carga, 0 = projeto já montado) e o número de abas.
+
+O scheduler compartilhado continua processando a saída de todos os PTYs,
+inclusive os de projetos ocultos. Cada amostra `pty` passa a informar
+`processedChars` e `hiddenChars`, além de duração e fila. Isso permitirá
+comparar a troca com terminais ociosos e com output contínuo em outros
+projetos. É uma amostra de drain, não uma taxa agregada por segundo.
+
+O usuário também relatou demora para fechar e cliques sem efeito nos botões
+de fechar, minimizar e maximizar. `windowControl` registra a entrega do clique
+(phase 0), o retorno da chamada nativa (phase 1) ou erro (phase 2), com
+`action` 1/2/3 respectivamente. O fechamento registra o pedido e o tempo até
+`windowManager.destroy()`. Hoje `onWindowClose` admite até 2 s para bounds e
+mais 2 s para flush do estado; o callback de saída do app ainda pode aguardar
+outro flush e a telemetria. No sidecar, as sessões PTY são encerradas em
+sequência; no Windows, cada `pty_kill` enumera a árvore de processos. Estes são
+caminhos candidatos à demora, ainda sem medição ao vivo nesta data. A instância
+do Cockpit já estava fechada no momento da inspeção, então os botões não foram
+reproduzidos neste follow-up.
+
+A build Windows debug atualizada compilou e os testes do scheduler/diagnóstico
+passaram, mas o processo iniciado pelo executor desta sessão não expôs janela
+principal nem endpoint CLI utilizável. Ele foi encerrado; não houve nova
+medição de carga, troca ou fechamento com 10 terminais em 2026-10-01.
+
+Na leitura do caminho lazy, `_activateProject` verificava apenas se a árvore
+já estava pronta. Se o usuário saísse e voltasse antes de terminar o restore,
+uma segunda chamada ainda via a árvore ausente e iniciava outra restauração do
+mesmo layout. As duas podiam abrir sessões PTY duplicadas e disputar os ids
+globais. A ativação agora compartilha um único `Future` por projeto enquanto
+está em andamento; a contagem de restores simultâneos mantém a gravação de
+layout suspensa até todos terminarem. É uma correção de concorrência apoiada
+pela leitura do código, ainda sem reprodução visual do sintoma original.

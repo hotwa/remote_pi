@@ -115,6 +115,7 @@ class TerminalSession extends PaneItem {
         _kickHarnessMonitor();
       },
     );
+    _coalescer.visible = false; // a view ainda não foi montada
     // Redação dos valores do `.env.cockpit` ANTES do coalescer: cobre tela,
     // scrollback gravado e `read-tab` de uma vez. Sem segredos é passthrough.
     final decoded = _gateway.output.cast<List<int>>().transform(
@@ -552,7 +553,10 @@ class TerminalSession extends PaneItem {
 
   /// Atualiza apenas a prioridade de observação do harness. O PTY e os
   /// processos nunca são pausados quando a aba/workspace fica oculto.
-  void setVisible(bool visible) => _monitor?.setSessionVisible(id, visible);
+  void setVisible(bool visible) {
+    _coalescer.visible = visible;
+    _monitor?.setSessionVisible(id, visible);
+  }
 
   /// Atualiza [_cwd] a partir de OSC 7 no chunk. Pega a ÚLTIMA ocorrência (o
   /// prompt mais recente). Notifica a VM quando muda → persiste no layout.
