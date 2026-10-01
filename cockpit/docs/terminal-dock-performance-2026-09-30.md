@@ -167,7 +167,8 @@ reproduzidos neste follow-up.
 A build Windows debug atualizada compilou e os testes do scheduler/diagnóstico
 passaram, mas o processo iniciado pelo executor desta sessão não expôs janela
 principal nem endpoint CLI utilizável. Ele foi encerrado; não houve nova
-medição de carga, troca ou fechamento com 10 terminais em 2026-10-01.
+medição visual de carga, troca ou fechamento pela janela com 10 terminais;
+o ensaio headless dos PTYs está abaixo.
 
 Na leitura do caminho lazy, `_activateProject` verificava apenas se a árvore
 já estava pronta. Se o usuário saísse e voltasse antes de terminar o restore,
@@ -177,3 +178,28 @@ globais. A ativação agora compartilha um único `Future` por projeto enquanto
 está em andamento; a contagem de restores simultâneos mantém a gravação de
 layout suspensa até todos terminarem. É uma correção de concorrência apoiada
 pela leitura do código, ainda sem reprodução visual do sintoma original.
+
+## Ensaio isolado do ciclo de vida dos PTYs em 2026-10-01
+
+O benchmark reproduzível em
+`packages/cockpit_engine/tool/benchmark_pty_lifecycle.dart` abre 10
+`cmd.exe` pelo mesmo `NativeTerminalService` usado no sidecar Windows,
+envia `ping -t 127.0.0.1` a cada PTY, espera saída contínua, redimensiona
+cada sessão e chama `dispose()`. O binário `cockpit_pty.dll` veio do build
+Windows debug desta branch. O benchmark é headless: não monta Flutter, não
+inclui o protocolo do sidecar e não mede a saída completa do aplicativo.
+
+Quatro execuções com 10 sessões vivas e saída contínua levaram 183, 187, 192
+e 196 ms para `NativeTerminalService.dispose()`. Na execução do arquivo
+versionado, `activeOutput=10`, as aberturas individuais levaram 10–32 ms
+e os resizes 6–374 µs. Portanto, nesta máquina, a etapa nativa de encerrar
+10 PTYs não reproduziu os vários segundos relatados ao fechar o Cockpit.
+A duração do callback da janela, a saída do engine, o encerramento do sidecar
+e a verificação independente de processos órfãos ainda precisam de medição.
+O ensaio não demonstra que o fechamento completo seja rápido.
+
+No log da última instância debug, um `terminalOpenFrame` levou 349 ms,
+`terminalFirstOutput` levou 4,35 s e o maior `slowFrame` registrado levou
+342 ms. Esses números são do build debug e não incluem um clique ou gesto
+observado visualmente nesta sessão. Eles reforçam que a carga inicial e o
+caminho visual precisam ser medidos separadamente do motor PTY.
