@@ -203,3 +203,28 @@ No log da última instância debug, um `terminalOpenFrame` levou 349 ms,
 342 ms. Esses números são do build debug e não incluem um clique ou gesto
 observado visualmente nesta sessão. Eles reforçam que a carga inicial e o
 caminho visual precisam ser medidos separadamente do motor PTY.
+
+## Criação de workspace na versão instalada em 2026-10-01
+
+O fluxo local chama `NativeFolderPicker.pick` antes do diálogo de nome/cor.
+No Windows, `file_picker` 8.3.7 implementa `getDirectoryPath()` com
+`IFileOpenDialog.Show` síncrono, mesmo retornando `Future<String?>`. A
+chamada anterior ocorria no isolate da UI. Se a navegação do Explorer ou
+algum shell extension demora, esse isolate para de produzir frames e de
+responder a cliques até o seletor retornar. A correção executa só a chamada
+Win32 em `Isolate.run`, preservando o tratamento atual para pasta inicial
+inválida. O mesmo fluxo nas demais plataformas continua no picker próprio.
+
+O diálogo seguinte ainda continha um trace temporário que gravava
+`ck_trace.log` com `flush: true` de forma síncrona durante `build`, foco,
+salvar e cancelar. Esses writes foram removidos. O arquivo de trace desta
+máquina não era atualizado desde 2026-09-23, então não há evidência de que
+tenha causado o travamento relatado hoje.
+
+O log da instalação em 2026-10-01 mostra falhas repetidas da varredura
+antiga de processos por JSON do PowerShell (`FormatException`). O provedor
+Toolhelp deste PR já substitui a varredura principal, mas esses registros
+não localizam a etapa exata do travamento de criação. A análise estática dos
+dois arquivos passou e o build Windows debug compilou após a mudança do
+picker; a remoção do trace passou em análise estática. Ainda falta medir
+o gesto na interface instalada ou num build desta branch.
