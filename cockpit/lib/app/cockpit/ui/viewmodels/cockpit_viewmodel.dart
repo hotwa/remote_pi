@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io'
     show Directory, File, FileSystemEntity, FileSystemException, Platform;
 import 'dart:math' show max;
+import 'dart:ui' show Offset;
 
 import 'package:cockpit/app/core/data/setup/remote_pi_resolver.dart';
 import 'package:flutter/services.dart' show PlatformException;
@@ -57,6 +58,8 @@ import 'package:cockpit/app/cockpit/domain/value_objects/uid.dart';
 import 'package:cockpit/app/cockpit/domain/entities/session_info.dart';
 import 'package:cockpit/app/cockpit/domain/entities/thinking_level.dart';
 import 'package:cockpit/app/cockpit/domain/entities/worktree.dart';
+import 'package:cockpit/app/cockpit/domain/entities/workspace_graph.dart';
+import 'package:cockpit/app/cockpit/ui/services/claude_graph_identity_resolver.dart';
 import 'package:cockpit/app/cockpit/domain/services/worktree_reconciler.dart';
 import 'package:cockpit/app/cockpit/ui/session/scm_line_decoration_coordinator.dart';
 import 'package:cockpit/app/core/data/lsp/lsp_server_pool.dart';
@@ -414,6 +417,358 @@ class CockpitViewModel extends ChangeNotifier {
   final Map<String, Map<String, dynamic>?> _savedLayouts =
       <String, Map<String, dynamic>?>{};
 
+  final Map<String, List<GraphBox>> _graphBoxes = {};
+  final Map<String, List<GraphLink>> _graphLinks = {};
+  final Map<String, List<GraphObservedLink>> _graphTraffic = {};
+  final Map<String, Map<String, String>> _graphClaudeAliases = {};
+  final Map<String, List<GraphUnresolvedPeer>> _graphUnresolvedPeers = {};
+  final ClaudeGraphIdentityResolver _graphIdentityResolver =
+      const ClaudeGraphIdentityResolver();
+  final Set<String> _graphScannedTranscripts = {};
+  final Set<String> _graphIdentityScanning = {};
+  final Set<String> _graphIdentityRescan = {};
+  final Map<String, String> _graphDiscoveredPaths = {};
+  final Set<String> _graphDiscoveryKeys = {};
+  final GraphSubagentRegistry _graphSubagents = GraphSubagentRegistry();
+
+  List<GraphBox> get graphBoxes =>
+      List.unmodifiable(_graphBoxes[_selectedProjectId] ?? const <GraphBox>[]);
+  List<GraphLink> get graphLinks =>
+      List.unmodifiable(_graphLinks[_selectedProjectId] ?? const <GraphLink>[]);
+  List<GraphObservedLink> get graphTraffic => List.unmodifiable(
+    _graphTraffic[_selectedProjectId] ?? const <GraphObservedLink>[],
+  );
+  List<GraphUnresolvedPeer> get graphUnresolvedPeers => List.unmodifiable(
+    _graphUnresolvedPeers[_selectedProjectId] ?? const <GraphUnresolvedPeer>[],
+  );
+  List<GraphSubagent> get graphSubagents =>
+      List.unmodifiable(_graphSubagents.forProject(_selectedProjectId));
+
+  void recordGraphTraffic(String sourceTabId, String targetTabId) {
+    final source = _sessions[sourceTabId];
+    final target = _sessions[targetTabId];
+    if (source == null ||
+        target == null ||
+        source.projectId != target.projectId ||
+        sourceTabId == targetTabId) {
+      return;
+    }
+    final traffic = _graphTraffic.putIfAbsent(source.projectId, () => []);
+    traffic.removeWhere(
+      (event) => event.fromTabId == sourceTabId && event.toTabId == targetTabId,
+    );
+    traffic.add(
+      GraphObservedLink(
+        fromTabId: sourceTabId,
+        toTabId: targetTabId,
+        observedAt: DateTime.now(),
+      ),
+    );
+    notifyListeners();
+  }
+
+  void _recordClaudeGraphMessage(TerminalSession source, String address) {
+    final recipient = address.trim();
+    if (recipient.isEmpty) return;
+    final targetId =
+        _graphClaudeAliases[source.projectId]?[recipient.toLowerCase()];
+    if (targetId != null && targetId != source.id) {
+      recordGraphTraffic(source.id, targetId);
+      return;
+    }
+    final peers = _graphUnresolvedPeers.putIfAbsent(source.projectId, () => []);
+    peers.removeWhere(
+      (peer) => peer.ownerTabId == source.id && peer.address == recipient,
+    );
+    peers.add(
+      GraphUnresolvedPeer(
+        projectId: source.projectId,
+        ownerTabId: source.id,
+        address: recipient,
+        observedAt: DateTime.now(),
+      ),
+    );
+    if (peers.length > 64) peers.removeAt(0);
+    notifyListeners();
+    reconcileClaudeGraphIdentities(source.projectId);
+  }
+
+  /// Match Claude recipient addresses to the sessions already represented by
+  /// terminal boxes, including sessions restored before the hook was installed.
+  void reconcileClaudeGraphIdentities(String projectId) {
+    if (!_graphIdentityScanning.add(projectId)) {
+      _graphIdentityRescan.add(projectId);
+      return;
+    }
+    unawaited(
+      _scanClaudeGraphIdentities(projectId).whenComplete(() {
+        _graphIdentityScanning.remove(projectId);
+        if (_graphIdentityRescan.remove(projectId)) {
+          reconcileClaudeGraphIdentities(projectId);
+        }
+      }),
+    );
+  }
+
+  Future<void> _scanClaudeGraphIdentities(String projectId) async {
+    final sessions = _sessions.values
+        .whereType<TerminalSession>()
+        .where(
+          (s) =>
+              s.projectId == projectId &&
+              s.claudeSessionId != null &&
+              s.agentHarness == AgentHarness.claude,
+        )
+        .toList();
+    final missingIds = {
+      for (final s in sessions)
+        if (s.transcriptPath == null) s.claudeSessionId!,
+    };
+    if (missingIds.isNotEmpty) {
+      final discoveryKey = '$projectId:${missingIds.toList()..sort()}';
+      if (_graphDiscoveryKeys.add(discoveryKey)) {
+        final home = userHome();
+        if (home != null) {
+          _graphDiscoveredPaths.addAll(
+            await _graphIdentityResolver.findTranscripts(home, missingIds),
+          );
+        }
+      }
+    }
+    for (final session in sessions) {
+      final path =
+          session.transcriptPath ??
+          _graphDiscoveredPaths[session.claudeSessionId];
+      if (path == null || !_graphScannedTranscripts.add(path)) continue;
+      final aliases = await _graphIdentityResolver.readAliases(path);
+      if (_sessions[session.id] != session) continue;
+      for (final alias in aliases) {
+        _registerClaudeGraphIdentity(session, alias);
+      }
+    }
+  }
+
+  void _registerClaudeGraphIdentity(TerminalSession session, String address) {
+    final alias = address.trim().toLowerCase();
+    if (alias.isEmpty) return;
+    _graphClaudeAliases.putIfAbsent(session.projectId, () => {})[alias] =
+        session.id;
+    final peers = _graphUnresolvedPeers[session.projectId];
+    if (peers == null) return;
+    final resolved = [
+      for (final peer in peers)
+        if (peer.address.toLowerCase() == alias) peer,
+    ];
+    peers.removeWhere((peer) => peer.address.toLowerCase() == alias);
+    for (final peer in resolved) {
+      recordGraphTraffic(peer.ownerTabId, session.id);
+    }
+    if (resolved.isNotEmpty) notifyListeners();
+  }
+
+  GraphBox? graphBoxForTab(String tabId) {
+    for (final box in _graphBoxes[_selectedProjectId] ?? const <GraphBox>[]) {
+      if (box.tabId == tabId) return box;
+    }
+    return null;
+  }
+
+  void _loadGraph(String projectId, Map<String, dynamic>? doc) {
+    if (_graphBoxes.containsKey(projectId)) return;
+    final graph = doc?['graph'];
+    final map = graph is Map ? graph : const {};
+    _graphBoxes[projectId] = [
+      if (map['boxes'] is List)
+        for (final raw in map['boxes'] as List) ?GraphBox.fromJson(raw),
+    ];
+    _graphLinks[projectId] = [
+      if (map['links'] is List)
+        for (final raw in map['links'] as List) ?GraphLink.fromJson(raw),
+    ];
+  }
+
+  Result<String, String> createGraphBox({
+    required String title,
+    required String role,
+    required String harness,
+    required String model,
+    required Offset position,
+  }) {
+    final project = selectedProject;
+    if (project == null) return const Failure('No workspace selected');
+    if (title.trim().isEmpty || role.trim().isEmpty) {
+      return const Failure('Title and role are required');
+    }
+    if (!const {'claude', 'codex', 'pi'}.contains(harness)) {
+      return const Failure('Unsupported agent');
+    }
+    // Model IDs enter a shell command. Permit only the characters used by
+    // provider/model identifiers so a graph form cannot inject shell syntax.
+    if (model.isNotEmpty && !RegExp(r'^[a-zA-Z0-9._:/-]+$').hasMatch(model)) {
+      return const Failure('Invalid model identifier');
+    }
+    final created = newTerminalTab(
+      cwd: project.effectiveRoot,
+      title: title.trim(),
+    );
+    switch (created) {
+      case Failure(:final error):
+        return Failure(error);
+      case Success(:final value):
+        final boxes = _graphBoxes.putIfAbsent(project.id, () => []);
+        boxes.add(
+          GraphBox(
+            id: _nid('box'),
+            title: title.trim(),
+            role: role.trim(),
+            harness: harness,
+            model: model,
+            position: position,
+            tabId: value,
+          ),
+        );
+        final modelArg = model.isEmpty ? '' : ' --model $model';
+        _typeWhenReady(value, '$harness$modelArg');
+        _scheduleSave(project.id);
+        notifyListeners();
+        return Success(value);
+    }
+  }
+
+  void moveGraphBox(String boxId, Offset position) {
+    final projectId = _selectedProjectId;
+    if (projectId == null) return;
+    final boxes = _graphBoxes[projectId];
+    if (boxes == null) return;
+    final index = boxes.indexWhere((box) => box.id == boxId);
+    if (index < 0) return;
+    boxes[index] = boxes[index].copyWith(position: position);
+    notifyListeners();
+    _scheduleSave(projectId);
+  }
+
+  void updateGraphBoxRole(String boxId, String role) {
+    final projectId = _selectedProjectId;
+    if (projectId == null || role.trim().isEmpty) return;
+    final boxes = _graphBoxes[projectId];
+    if (boxes == null) return;
+    final index = boxes.indexWhere((box) => box.id == boxId);
+    if (index < 0) return;
+    boxes[index] = boxes[index].copyWith(role: role.trim());
+    notifyListeners();
+    _scheduleSave(projectId);
+  }
+
+  Result<String, String> relaunchGraphBox(String boxId) {
+    final project = selectedProject;
+    if (project == null) return const Failure('No workspace selected');
+    final boxes = _graphBoxes[project.id];
+    final index = boxes?.indexWhere((box) => box.id == boxId) ?? -1;
+    if (boxes == null || index < 0) return const Failure('Box not found');
+    final box = boxes[index];
+    if (box.tabId != null &&
+        box.tabId!.isNotEmpty &&
+        _sessions.containsKey(box.tabId)) {
+      return Success(box.tabId!);
+    }
+    final created = newTerminalTab(
+      cwd: project.effectiveRoot,
+      title: box.title,
+    );
+    switch (created) {
+      case Failure(:final error):
+        return Failure(error);
+      case Success(:final value):
+        boxes[index] = box.copyWith(tabId: value);
+        final modelArg = box.model.isEmpty ? '' : ' --model ${box.model}';
+        _typeWhenReady(value, '${box.harness}$modelArg');
+        notifyListeners();
+        _scheduleSave(project.id);
+        return Success(value);
+    }
+  }
+
+  /// Starts a fresh terminal for a handoff, retaining the box's stable ID and
+  /// every graph link. The previous terminal remains available as history.
+  Result<String, String> startGraphHandoff(String boxId) {
+    final project = selectedProject;
+    if (project == null) return const Failure('No workspace selected');
+    final boxes = _graphBoxes[project.id];
+    final index = boxes?.indexWhere((box) => box.id == boxId) ?? -1;
+    if (boxes == null || index < 0) return const Failure('Box not found');
+    final box = boxes[index];
+    final created = newTerminalTab(
+      cwd: project.effectiveRoot,
+      title: box.title,
+    );
+    switch (created) {
+      case Failure(:final error):
+        return Failure(error);
+      case Success(:final value):
+        boxes[index] = box.copyWith(tabId: value);
+        final modelArg = box.model.isEmpty ? '' : ' --model ${box.model}';
+        _typeWhenReady(value, '${box.harness}$modelArg');
+        notifyListeners();
+        _scheduleSave(project.id);
+        return Success(value);
+    }
+  }
+
+  void addGraphLink(String from, String to) {
+    final projectId = _selectedProjectId;
+    if (projectId == null || from == to) return;
+    final ids = (_graphBoxes[projectId] ?? []).map((b) => b.id).toSet();
+    if (!ids.contains(from) || !ids.contains(to)) return;
+    final links = _graphLinks.putIfAbsent(projectId, () => []);
+    if (links.any((link) => link.from == from && link.to == to)) return;
+    links.add(GraphLink(from: from, to: to));
+    notifyListeners();
+    _scheduleSave(projectId);
+  }
+
+  String ensureGraphBoxForTab(PaneItem session, Offset position) {
+    final boxes = _graphBoxes.putIfAbsent(session.projectId, () => []);
+    for (final box in boxes) {
+      if (box.tabId == session.id) return box.id;
+    }
+    final box = GraphBox(
+      id: _nid('box'),
+      title: session.displayTitle,
+      role: '',
+      harness: session is AgentSession
+          ? 'pi'
+          : session is TerminalSession
+          ? session.activeHarness?.name ?? ''
+          : '',
+      model: '',
+      position: position,
+      tabId: session.id,
+    );
+    boxes.add(box);
+    notifyListeners();
+    _scheduleSave(session.projectId);
+    return box.id;
+  }
+
+  void removeGraphLink(String from, String to) {
+    final projectId = _selectedProjectId;
+    if (projectId == null) return;
+    _graphLinks[projectId]?.removeWhere((l) => l.from == from && l.to == to);
+    notifyListeners();
+    _scheduleSave(projectId);
+  }
+
+  void removeGraphBox(String boxId) {
+    final projectId = _selectedProjectId;
+    if (projectId == null) return;
+    _graphBoxes[projectId]?.removeWhere((b) => b.id == boxId);
+    _graphLinks[projectId]?.removeWhere(
+      (l) => l.from == boxId || l.to == boxId,
+    );
+    notifyListeners();
+    _scheduleSave(projectId);
+  }
+
   /// Debounce de gravação por projeto (o resize é arrasto contínuo).
   final Map<String, Timer> _saveTimers = <String, Timer>{};
 
@@ -620,6 +975,10 @@ class CockpitViewModel extends ChangeNotifier {
 
   String? get selectedProjectId => _selectedProjectId;
   Project? get selectedProject => _projectById(_selectedProjectId);
+  bool get selectedRemoteDisconnected {
+    final hostId = selectedProject?.remoteHostId;
+    return hostId != null && _remoteHosts.isDisconnected(hostId);
+  }
 
   /// Título pro topbar: `"<workspace> · <worktree>"` quando um fork está
   /// selecionado (separador middle-dot U+00B7); só o nome do workspace caso
@@ -2281,6 +2640,9 @@ class CockpitViewModel extends ChangeNotifier {
         sessionId: s.sid,
         transcriptPath: s.transcriptPath,
         harness: s.harness,
+        subagentId: s.subagentId,
+        subagentType: s.subagentType,
+        eventAt: s.eventAt,
       ),
     );
 
@@ -4936,6 +5298,62 @@ class CockpitViewModel extends ChangeNotifier {
   void _onClaudeStatus(ClaudeStatusUpdate u) {
     final s = _sessions[u.paneId];
     if (s is! TerminalSession) return;
+    if (u.harness == 'claude') {
+      if (u.graphSelfName case final String ownAddress
+          when ownAddress.isNotEmpty) {
+        _registerClaudeGraphIdentity(s, ownAddress);
+      }
+      if (u.graphRecipient case final String recipient
+          when recipient.isNotEmpty) {
+        _recordClaudeGraphMessage(s, recipient);
+      }
+    }
+    if (u.status == 'subagent_start') {
+      final agentId = u.subagentId;
+      if (agentId != null &&
+          agentId.isNotEmpty &&
+          _graphSubagents.start(
+            GraphSubagent(
+              projectId: s.projectId,
+              ownerTabId: s.id,
+              agentId: agentId,
+              agentType: u.subagentType?.isNotEmpty == true
+                  ? u.subagentType!
+                  : '',
+              harness: u.harness ?? s.agentHarness.wire,
+              startedAt: u.eventAt ?? DateTime.now(),
+            ),
+          )) {
+        notifyListeners();
+      }
+      return;
+    }
+    if (u.status == 'subagent_stop') {
+      final agentId = u.subagentId;
+      if (agentId != null &&
+          _graphSubagents.stop(s.id, agentId, u.eventAt ?? DateTime.now())) {
+        notifyListeners();
+      }
+      return;
+    }
+    if (u.event == 'SessionEnd') {
+      final removedChildren = _graphSubagents.clearOwner(s.id);
+      final peers = _graphUnresolvedPeers[s.projectId];
+      final before = peers?.length ?? 0;
+      peers?.removeWhere((peer) => peer.ownerTabId == s.id);
+      _graphClaudeAliases[s.projectId]?.removeWhere(
+        (_, tabId) => tabId == s.id,
+      );
+      if (removedChildren || (peers?.length ?? 0) != before) {
+        notifyListeners();
+      }
+    }
+    if (u.status == 'metric') {
+      if (u.contextTokens != null && u.contextWindow != null) {
+        s.applyGraphMetrics(u.contextTokens!, u.contextWindow!);
+      }
+      return;
+    }
     if (kDebugMode) {
       debugPrint(
         '[status] ${DateTime.now().toIso8601String().substring(11, 23)} '
@@ -4963,6 +5381,11 @@ class CockpitViewModel extends ChangeNotifier {
     // nunca chega ao disco e o restore não consegue retomar a sessão.
     if (s.claudeSessionId != hadSid && s.claudeSessionId != null) {
       _scheduleSave(s.projectId);
+    }
+    if (u.harness == 'claude' &&
+        s.claudeSessionId != null &&
+        (s.claudeSessionId != hadSid || u.transcriptPath != null)) {
+      reconcileClaudeGraphIdentities(s.projectId);
     }
   }
 
@@ -5042,9 +5465,18 @@ class CockpitViewModel extends ChangeNotifier {
   }
 
   void _disposeSession(String id) {
+    _graphSubagents.clearOwner(id);
     _fileWatchers.remove(id)?.cancel();
     _fileWatchDebounce.remove(id)?.cancel();
     final s = _sessions.remove(id);
+    if (s != null) {
+      final boxes = _graphBoxes[s.projectId];
+      if (boxes != null) {
+        for (var i = 0; i < boxes.length; i++) {
+          if (boxes[i].tabId == id) boxes[i] = boxes[i].copyWith(tabId: '');
+        }
+      }
+    }
     // Aba fechada explicitamente → descarta o scrollback persistido (só abas de
     // terminal têm). O app-quit NÃO passa por aqui (chama `s.dispose()` direto em
     // `dispose()`), então o registro sobrevive pra restaurar — que é o objetivo.
@@ -5105,6 +5537,7 @@ class CockpitViewModel extends ChangeNotifier {
       _savedLayouts[id] = await _layoutStore.load(id);
     }
     final doc = _savedLayouts[id];
+    _loadGraph(id, doc);
     if (doc == null) {
       _initTree(id); // síncrono — pane vazia padrão
       // NOTIFICAR É OBRIGATÓRIO AQUI, e não só no caminho de restore abaixo.
@@ -5448,6 +5881,16 @@ class CockpitViewModel extends ChangeNotifier {
       // Toggle de worktrees do rail (V37) — mora no mesmo doc do layout, então
       // sobrevive à sessão sem inventar outro store.
       kWorktreesExpandedKey: worktreesExpanded(projectId),
+      'graph': {
+        'boxes': [
+          for (final box in _graphBoxes[projectId] ?? const <GraphBox>[])
+            box.toJson(),
+        ],
+        'links': [
+          for (final link in _graphLinks[projectId] ?? const <GraphLink>[])
+            link.toJson(),
+        ],
+      },
     };
   }
 

@@ -95,6 +95,10 @@ class CockpitCliHandler {
           );
         }
         s.insertText(text);
+        final source = c.args['sourceTabId'];
+        if (source is String && source.isNotEmpty) {
+          _vm.recordGraphTraffic(source, id);
+        }
         return const CockpitCommandResult.ok();
 
       case 'list-panes':
@@ -250,6 +254,11 @@ class CockpitCliHandler {
             'tab "${s.id}" is not in any pane (already closed?)',
           );
         }
+        if (_vm.graphBoxForTab(s.id) != null) {
+          return const CockpitCommandResult.fail(
+            'This terminal belongs to a graph box. Close it in the Cockpit UI to choose whether to keep or remove the box.',
+          );
+        }
         // O fechamento roda DEPOIS da resposta (`afterResponse`): fechar a
         // própria aba emissora mata o PTY — e com ele o shell e o processo
         // `cockpit` que espera o `ok` neste socket. Fechando aqui, o sucesso
@@ -341,7 +350,14 @@ class CockpitCliHandler {
             'tab "${s.id}" (${_paneKind(s)}) has no readable output',
           );
         }
-        return CockpitCommandResult.ok(readTerminalWindow(term, c.args));
+        final window = readTerminalWindow(term, c.args);
+        if ((window['lines'] as int? ?? 0) > 0) {
+          final source = c.args['sourceTabId'];
+          if (source is String && source.isNotEmpty) {
+            _vm.recordGraphTraffic(s.id, source);
+          }
+        }
+        return CockpitCommandResult.ok(window);
 
       // `cockpit list-tasks` — tasks do workspace do pane emissor (tabId,
       // default da CLI = a própria tab; fallback: workspace selecionado).
@@ -353,9 +369,7 @@ class CockpitCliHandler {
             ? _vm.projectById(sender.projectId)
             : _vm.selectedProject;
         final tasksRoot = project?.effectiveRoot ?? '';
-        if (project == null ||
-            project.isSystemTerminal ||
-            tasksRoot.isEmpty) {
+        if (project == null || project.isSystemTerminal || tasksRoot.isEmpty) {
           return const CockpitCommandResult.fail(
             'no workspace to list tasks for',
           );

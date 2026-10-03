@@ -46,6 +46,39 @@ Future<void> showInfoDialog(
 /// Escolha do usuário ao fechar uma aba com alterações não salvas.
 enum CloseDirtyChoice { cancel, dontSave, save }
 
+enum CloseGraphBoxChoice { cancel, keep, remove }
+
+Future<CloseGraphBoxChoice> showCloseGraphBoxDialog(
+  BuildContext context, {
+  required String boxTitle,
+}) async {
+  final result = await showDialog<CloseGraphBoxChoice>(
+    context: context,
+    barrierColor: context.colors.scrim,
+    builder: (context) => AlertDialog(
+      title: const Text('Fechar terminal do box'),
+      content: Text('O que fazer com "$boxTitle" e suas conexões?'),
+      actions: [
+        DestructiveButton(
+          onPressed: () =>
+              Navigator.of(context).pop(CloseGraphBoxChoice.remove),
+          child: const Text('Remover box'),
+        ),
+        OutlineButton(
+          onPressed: () =>
+              Navigator.of(context).pop(CloseGraphBoxChoice.cancel),
+          child: const Text('Cancelar'),
+        ),
+        PrimaryButton(
+          onPressed: () => Navigator.of(context).pop(CloseGraphBoxChoice.keep),
+          child: const Text('Manter inativo'),
+        ),
+      ],
+    ),
+  );
+  return result ?? CloseGraphBoxChoice.cancel;
+}
+
 /// Dialog ao fechar um arquivo editado e não salvo: descartar, cancelar ou
 /// salvar e fechar. `null` (dispensar fora) é tratado como [CloseDirtyChoice.cancel].
 Future<CloseDirtyChoice> showCloseDirtyDialog(
