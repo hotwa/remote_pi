@@ -878,9 +878,8 @@ class _ColumnListState extends State<_ColumnList> {
   }
 }
 
-String _errorMessage(BuildContext context, Object? e) => e is DbQueryException
-    ? dbErrorMessage(context, e)
-    : e.toString();
+String _errorMessage(BuildContext context, Object? e) =>
+    e is DbQueryException ? dbErrorMessage(context, e) : e.toString();
 
 class _Chip extends StatelessWidget {
   const _Chip(this.label);

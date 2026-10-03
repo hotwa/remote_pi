@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:cockpit/app/cockpit/domain/contracts/terminal_status_server.dart';
+import 'package:cockpit/app/core/data/diagnostics/diagnostics_log.dart';
 import 'package:cockpit/app/core/data/setup/remote_pi_resolver.dart';
 import 'package:flutter/foundation.dart';
 
@@ -68,6 +69,7 @@ class TerminalStatusServerImpl implements TerminalStatusServer {
       if (Platform.isWindows) {
         _token = _randomToken();
         _server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        await _writeEndpointFile();
       } else {
         final file = File(_socketPath);
         await file.parent.create(recursive: true);
@@ -82,6 +84,32 @@ class TerminalStatusServerImpl implements TerminalStatusServer {
       _server!.listen(_handleConnection, onError: (_) {});
     } catch (e) {
       if (kDebugMode) debugPrint('[status-server] bind falhou: $e');
+    }
+  }
+
+  /// Windows: anuncia `{port, tok}` em `~/.cockpit/status[-debug].json` pra
+  /// quem precisa achar o app SEM herdar o env de uma aba: o segundo processo
+  /// que o Explorer abre num duplo clique (instância única, ver
+  /// `RunningInstance`) e a CLI rodada de fora. É o equivalente do caminho bem
+  /// conhecido do socket Unix; o token continua exigido no wire.
+  String get _endpointFilePath {
+    final home = remotePiHome() ?? Directory.systemTemp.path;
+    final suffix = kDebugMode ? '-debug' : '';
+    return '$home/.cockpit/status$suffix.json';
+  }
+
+  Future<void> _writeEndpointFile() async {
+    final server = _server;
+    if (server == null) return;
+    try {
+      final file = File(_endpointFilePath);
+      await file.parent.create(recursive: true);
+      await file.writeAsString(
+        jsonEncode({'port': server.port, 'tok': _token}),
+        flush: true,
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('[status-server] endpoint file: $e');
     }
   }
 
@@ -219,8 +247,16 @@ class TerminalStatusServerImpl implements TerminalStatusServer {
         ),
       );
       return (null, null);
-    } catch (_) {
+    } on Object catch (e) {
       // linha malformada: sem resposta (a CLI reporta timeout/erro de leitura).
+      // Leva um trecho da linha: sem ele o aviso era indiagnosticavel
+      // (caso ev_6vw da Telemetria do app).
+      final sample = line.length > 200 ? '${line.substring(0, 200)}…' : line;
+      DiagnosticsLog.instance.warn(
+        'cli-socket',
+        'malformed line: $sample',
+        error: e,
+      );
       return (null, null);
     }
   }
@@ -256,11 +292,11 @@ class TerminalStatusServerImpl implements TerminalStatusServer {
     _server = null;
     _onUpdate = null;
     _token = null;
-    if (!Platform.isWindows) {
-      try {
-        final file = File(_socketPath);
-        if (await file.exists()) await file.delete();
-      } catch (_) {}
+    try {
+      final file = File(Platform.isWindows ? _endpointFilePath : _socketPath);
+      if (await file.exists()) await file.delete();
+    } on Object catch (_) {
+      // best-effort: socket/endpoint órfão é apagado no próximo start.
     }
   }
 }

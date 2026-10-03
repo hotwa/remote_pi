@@ -456,7 +456,10 @@ class DatabaseViewModel extends ChangeNotifier {
     }
     final legacy = await _secrets.read(
       DbQueryService.sshSecretKey(root, previousName ?? conn.name),
-      legacyKey: DbQueryService.legacySshSecretKey(wsId, previousName ?? conn.name),
+      legacyKey: DbQueryService.legacySshSecretKey(
+        wsId,
+        previousName ?? conn.name,
+      ),
     );
     if (legacy != null && legacy.isNotEmpty) {
       await remote.setSshPassphrase(root, conn.name, legacy);

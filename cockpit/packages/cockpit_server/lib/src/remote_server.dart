@@ -8,6 +8,7 @@ import 'package:cockpit_core/cockpit_core.dart';
 import 'package:cockpit_protocol/cockpit_protocol.dart';
 
 import 'host_process_metrics.dart';
+import 'pty_output_coalescer.dart';
 
 class _RpcUnknown implements Exception {
   const _RpcUnknown(this.method);
@@ -472,6 +473,13 @@ class _Connection {
   final String? _expectedToken;
 
   final Map<String, StreamSubscription<PtyEvent>> _attachments = {};
+  final Map<String, PtyOutputCoalescer> _coalescers = {};
+
+  Future<void> _detach(String sessionId) async {
+    await _attachments.remove(sessionId)?.cancel();
+    _coalescers.remove(sessionId)?.dispose();
+  }
+
   final Completer<void> _done = Completer();
   bool _handshaken = false;
 
@@ -503,7 +511,7 @@ class _Connection {
       if (!_handshaken) {
         if (message is! Hello) {
           _send(const RemoteError(code: 'handshake_required'));
-          return close();
+          return await close();
         }
         if (message.version != protocolVersion) {
           _send(
@@ -512,13 +520,13 @@ class _Connection {
               detail: 'server=$protocolVersion client=${message.version}',
             ),
           );
-          return close();
+          return await close();
         }
         // Porta de loopback aceita conexão de qualquer processo da máquina;
         // o token é o que restringe ao dono do arquivo de rendezvous.
         if (_expectedToken != null && message.token != _expectedToken) {
           _send(const RemoteError(code: 'invalid_token'));
-          return close();
+          return await close();
         }
         _handshaken = true;
         _localClient = message.local;
@@ -610,26 +618,33 @@ class _Connection {
           );
 
         case PtyAttach():
-          await _attachments.remove(message.sessionId)?.cancel();
-          _attachments[message.sessionId] = _terminals
-              .attach(message.sessionId, fromOffset: message.fromOffset)
+          await _detach(message.sessionId);
+          final sessionId = message.sessionId;
+          final coalescer = PtyOutputCoalescer(
+            (offset, bytes) => _send(
+              PtyOutput(sessionId: sessionId, offset: offset, bytes: bytes),
+            ),
+          );
+          _coalescers[sessionId] = coalescer;
+          _attachments[sessionId] = _terminals
+              .attach(sessionId, fromOffset: message.fromOffset)
               .listen(
                 (event) => switch (event) {
-                  PtyOutputEvent(:final chunk) => _send(
-                    PtyOutput(
-                      sessionId: message.sessionId,
-                      offset: chunk.offset,
-                      bytes: chunk.bytes,
-                    ),
+                  PtyOutputEvent(:final chunk) => coalescer.add(
+                    chunk.offset,
+                    chunk.bytes,
                   ),
-                  PtyExitEvent(:final exitCode) => _send(
-                    PtyExited(sessionId: message.sessionId, exitCode: exitCode),
-                  ),
+                  // O exit vai DEPOIS do que ainda está no lote: o cliente lê
+                  // a última saída do processo antes de fechar a aba.
+                  PtyExitEvent(:final exitCode) => () {
+                    coalescer.flush();
+                    _send(PtyExited(sessionId: sessionId, exitCode: exitCode));
+                  }(),
                 },
               );
 
         case PtyDetach():
-          await _attachments.remove(message.sessionId)?.cancel();
+          await _detach(message.sessionId);
 
         case PtyInput():
           await _terminals.write(message.sessionId, message.bytes);
@@ -645,7 +660,7 @@ class _Connection {
           );
 
         case PtyKill():
-          await _attachments.remove(message.sessionId)?.cancel();
+          await _detach(message.sessionId);
           await _terminals.kill(message.sessionId);
 
         case RpcRequest():
@@ -894,6 +909,10 @@ class _Connection {
       await sub.cancel();
     }
     _attachments.clear();
+    for (final c in _coalescers.values) {
+      c.dispose();
+    }
+    _coalescers.clear();
     _socket.destroy();
     if (!_done.isCompleted) _done.complete();
   }

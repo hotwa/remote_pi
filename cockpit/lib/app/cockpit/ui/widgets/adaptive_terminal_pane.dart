@@ -91,12 +91,6 @@ class _GhosttyPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // IndexedStack mantém a sessão e este widget montados. Remover somente a
-    // view terminal inativa desanexa seus listeners/render objects; o parser e
-    // o scrollback continuam vivos no controller, sem layout/paint invisível a
-    // cada batch de output. Ao reativar, a view reconecta ao estado atual.
-    if (!active) return const SizedBox.expand();
-
     final shortcuts = <ShortcutActivator, Intent>{};
     if (!readOnly && onPaste != null) {
       shortcuts[const SingleActivator(LogicalKeyboardKey.keyV, meta: true)] =
@@ -142,6 +136,7 @@ class _GhosttyPane extends StatelessWidget {
       // sem LayoutBuilder, mata crash e espelho.
       key: GlobalObjectKey(terminal.controller),
       controller: terminal.controller,
+      presentationActive: active,
       focusNode: focusNode,
       showKeyboard: !readOnly,
       padding: EdgeInsets.zero,
@@ -153,16 +148,30 @@ class _GhosttyPane extends StatelessWidget {
 
     final view = TerminalUnzoomBox(scale: uiScale, child: terminalView);
 
-    return Actions(
-      actions: <Type, Action<Intent>>{
-        _CockpitPasteIntent: CallbackAction<_CockpitPasteIntent>(
-          onInvoke: (_) {
-            onPaste?.call();
-            return null;
+    // Aba inativa: a TerminalView fica MONTADA, só não é pintada. Antes ela era
+    // trocada por um `SizedBox` e cada volta pra aba pagava um `initState`
+    // completo do flterm (ViewAttachment novo, métricas de fonte, atlas,
+    // resize) — era o delay visível na troca de aba. `Offstage` mantém o
+    // Element/State (nada de re-attach), pula paint e hit-test, e o
+    // `TickerMode` desliga o blink do cursor enquanto oculta. O parser e o
+    // scrollback seguem no controller; presentationActive suspende apenas as
+    // invalidacoes visuais e faz um layout completo ao reabrir.
+    return Offstage(
+      offstage: !active,
+      child: TickerMode(
+        enabled: active,
+        child: Actions(
+          actions: <Type, Action<Intent>>{
+            _CockpitPasteIntent: CallbackAction<_CockpitPasteIntent>(
+              onInvoke: (_) {
+                onPaste?.call();
+                return null;
+              },
+            ),
           },
+          child: view,
         ),
-      },
-      child: view,
+      ),
     );
   }
 

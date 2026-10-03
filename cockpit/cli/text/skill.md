@@ -1,6 +1,6 @@
 ---
 name: cockpit-cli
-description: Drive Cockpit's multiplexed terminals from inside a tab. Use when you (an agent running in a Cockpit terminal) need to open a new terminal tab or split pane, type text or press keys into your own or another tab, read another tab's or a task's output, list the open tabs/workspaces/tasks, or query the workspace's databases (SQL over registered connections / .dbq files). Triggers on tmux-like control needs — split-window/new-window, send-keys, run a command in another tab, read a tab's scrollback, inspect a task run's output, discover tab or task ids — and on database needs: run a SQL query, inspect a schema, list connections, execute a .dbq file. Also covers pane-layout orchestration: applying a `.ckp` layout file (open several terminals/splits and run their commands) via `cockpit orchestrate`.
+description: Drive Cockpit's multiplexed terminals from inside a tab. Use when you (an agent running in a Cockpit terminal) need to open a new terminal tab or split pane, type text or press keys into your own or another tab, read another tab's or a task's output, list the open tabs/workspaces/tasks, or query the workspace's databases (SQL over registered connections / .dbq files). Triggers on tmux-like control needs — split-window/new-window, send-keys, run a command in another tab, read a tab's scrollback, inspect a task run's output, discover tab or task ids — and on database needs: run a SQL query, inspect a schema, list connections, execute a .dbq file. Also covers pane-layout orchestration: applying a `.ckp` layout file (open several terminals/splits and run their commands) via `cockpit orchestrate`. Also covers `.kanban` board files: the markdown format the app renders as a kanban board (columns, cards, labels, notes, comments) — read it when asked to create, read or update a board, a task list or a roadmap the human can open in Cockpit. Also covers `.notebook` folders (a notebook of tagged markdown notes the human reads in the app) and the `cockpit note` verb that writes into one.
 ---
 
 # cockpit — Cockpit's internal CLI
@@ -54,6 +54,16 @@ Cockpit tabs (it is not on the global PATH).
   (tab next to the terminal). `cockpit <file>` is the shortcut. The path is
   resolved against the tab cwd (relative, `~` and absolute all work). Any type
   opens as text — including extensionless ones (`.zprofile`, `Makefile`).
+- `cockpit exec [--cwd <dir>] [--timeout <s>] [--json] [--] <command...>` —
+  run a shell line through the app and print its output; the exit code is the
+  command's. The shell is the app's **default terminal profile** (Settings →
+  Terminal): the login shell on macOS/Linux (so your PATH applies), and on
+  Windows whatever the `+` opens — PowerShell, cmd or a WSL distro — so write
+  the line in that shell's syntax. `--json` prints
+  `{ok, code, stdout, stderr, timedOut}` on one line. This is what `.panel`
+  buttons use under the hood; from a terminal you already have a shell, so
+  prefer it only when you want the app's environment (`cockpit` on PATH,
+  `COCKPIT_TAB_ID` set) from outside a Cockpit tab.
 - `cockpit browse <url> [--json]` — open the app's built-in **browser tab** at
   `<url>` (e.g. a dev server you just started: `cockpit browse
   http://localhost:3000`). A browser tab already open on the same host:port is
@@ -214,7 +224,26 @@ Cockpit tabs (it is not on the global PATH).
   `source` (detected|manual), `running`, `hasOutput` (`read-task` has output
   to read). Ids are stable per workspace: `npm:<script>` (package.json
   scripts), `flutter:run`/`flutter:test`, `json:<label>`
-  (`.cockpit/tasks.json`).
+  (`.cockpit/tasks.json`). With `--json` each task also lists its `profiles`
+  and interactive `keys`.
+- `cockpit run-task <task-id> [--profile <name>] [--restart]`,
+  `cockpit stop-task <task-id>`, `cockpit restart-task <task-id>`,
+  `cockpit send-task-key <task-id> <key>` — drive the **Tasks panel** from a
+  tab: start a task (fails if already running unless `--restart`), stop it,
+  restart it with the same profile, or write an interactive key to its stdin
+  (`r` = hot reload, `R` = hot restart on Flutter; the keys come from
+  `list-tasks --json`). Same runner the human sees in the panel, so state and
+  output stay in sync; works on local and remote workspaces (the task runs
+  where the workspace lives). Prefer `send-task-key` over a restart when the
+  task offers a reload key — it is what the human would press.
+
+  ```sh
+  cockpit list-tasks --json                 # ids, profiles, keys
+  cockpit run-task npm:dev                  # start the dev server
+  cockpit send-task-key flutter:run r       # hot reload after an edit
+  cockpit restart-task npm:dev              # config changed, reload won't do
+  cockpit read-task npm:dev --lines 40      # check what it printed
+  ```
 - `cockpit list-tabs [--json]` (alias: `list-panes`) — active tabs: `id`,
   `kind` (terminal|agent|file|task), `title` (dynamic), `label` (manual stable
   name, or null), `workspaceId` (opaque UUID), `workspacePath` (workspace root
@@ -222,11 +251,29 @@ Cockpit tabs (it is not on the global PATH).
   accepts). Resolve a tab by its stable `label`, not the dynamic `title`.
 - `cockpit list-workspaces [--json]` — open projects: `id` (opaque UUID),
   `name`, `path` (root on disk), `tabs`.
-- `cockpit orchestrate <file.ckp> [--json]` — apply a **pane layout** to the
-  current workspace: opens the terminals/splits declared in the file and types
-  each pane's `command`. Idempotent merge: a pane whose `name` already exists
-  as a tab label is skipped (running it twice is a no-op). Prints
-  `created:`/`skipped:` (or `{"created":[],"skipped":[]}` with `--json`).
+- `cockpit new-workspace <path> [--host <ssh-target>] [--name <title>] [--json]`
+  (aliases: `open-workspace`, `new-remote-workspace`) — add `<path>` as a top-level
+  project in Cockpit's rail (local or remote), select it, and ensure an initial
+  terminal tab is opened. For remote workspaces, pass `--host` (SSH host or
+  `~/.ssh/config` alias). Idempotent: focuses an already open workspace.
+  Prints the workspace id (or full object with `--json`).
+- `cockpit close-workspace [<id|path>] [--json]` — remove a top-level project
+  from Cockpit (ends its tabs; files on disk are kept). Target may be an id,
+  path, or unique name (default: current workspace). Prints the closed workspace id.
+- `cockpit rename-workspace [<id|path>] <new-name> [--json]` — update the
+  display title of a workspace in the rail. Target may be an id, path, or
+  unique name (default: current workspace).
+- `cockpit orchestrate <file.ckp> [--append] [--json]` — apply a **pane
+  layout** to the current workspace: opens the terminals/splits declared in
+  the file and types each pane's `command`. By default the workspace
+  **becomes** the layout: every open tab is closed first, with no
+  confirmation, then the panes are created. The tab you run the command from
+  is the only one kept (closing it would kill the CLI mid-call).
+  An invalid file closes nothing. With `--append` the open tabs are kept and
+  the layout is merged on top (idempotent: a pane whose `name` already exists
+  as a tab label is skipped, so running it twice is a no-op). Prints
+  `closed:`/`created:`/`skipped:` (or `{"created":[],"skipped":[],"closed":0}`
+  with `--json`).
 
 ## Layout files (`*.ckp`)
 
@@ -256,7 +303,342 @@ Rules:
   one was skipped (merge), the next opens as a plain tab.
 - `platforms` accepts a string or list of `macos`/`windows`/`linux`.
 - In the app, right-click a `.ckp` file → **Open layout** does the same as
-  `cockpit orchestrate`.
+  `cockpit orchestrate` (replace); the app asks for confirmation only when a
+  tab to be closed has a running process.
+
+## Board files (`*.kanban`)
+
+A `.kanban` file is a **markdown board**: the app renders it as columns and
+cards, but it stays plain markdown on disk. There is no `cockpit kanban`
+verb and you do not need one — **edit the file with your normal file tools**.
+The open tab reloads by itself as soon as you save.
+
+Use `cockpit open board.kanban` to put it in front of the human.
+
+```markdown
+---
+title: Roadmap                                   # the tab's label
+columns: [Backlog, Doing, Review, Done]          # documentation; `##` is what counts
+labels: {relay: orange, bug: red, ui: purple}    # name -> palette color
+---
+
+## Doing
+
+- [ ] Túnel SSH no host <!-- id: k3 labels: relay, infra -->
+      Free markdown note, indented under the title.
+
+      <!-- comment: 2026-09-07T08:30 -->
+      Newest comment.
+
+      <!-- comment: 2026-09-06T19:22 -->
+      Older comment.
+
+## Done
+
+- [x] Absorver o plugin de PTY <!-- id: k1 -->
+```
+
+Rules that matter when you write one:
+- **Columns are `##` headings**; cards are top-level `- [ ]` / `- [x]` items
+  under them. Order in the file is the order on screen.
+- **The last column means done.** The app keeps `[x]` in sync with position,
+  so move a card *and* flip its checkbox together — a `[x]` sitting in
+  `Backlog` is the one inconsistency the human will see.
+- **Ids are optional.** Write cards without `<!-- id: -->`; the app injects one
+  the first time the card is moved from the UI. Keep an id you find — it is
+  how the card is tracked across edits.
+- **Labels** are `labels: a, b` inside the card's HTML comment, and only get a
+  color if the frontmatter declares one. An undeclared label still works (grey).
+- **Notes** are the indented lines right under the title, up to the first
+  comment marker.
+- **Comments** are blocks opened by `<!-- comment: <ISO minute> -->`, indented
+  like the note. **Newest first**: insert a new one directly *above* the
+  existing ones (right after the note), so file order is reading order.
+- **Anything the parser does not model survives.** A stray paragraph inside a
+  column shows up as a read-only card instead of being dropped, and no edit
+  the app makes ever rewrites the whole file — so your formatting, comments and
+  blank lines stay put.
+
+Two things to prefer:
+- Writing a `.kanban` beats reporting a plan in chat when the human should be
+  able to follow it later: the board is a file they can open, drag and commit.
+- Editing the file beats driving the UI. Keep the diff small (the app does the
+  same — a card move is a three-line diff), and never reformat the whole file.
+
+## Panel files (`*.panel`)
+
+A `.panel` file is a **live HTML page** with a bridge to the app: the tab runs
+the page in a web view and injects `window.cockpit`, so buttons and scripts in
+it can run Cockpit CLI verbs and shell commands on this machine. Use it as a
+playground: a quick dashboard to validate something, a form that triggers a
+task, a status board that polls `git`/`db`. One file, no server, no ports.
+
+Write it with your normal file tools (`cockpit open x.panel` puts it in front
+of the human). The open tab reloads by itself when you save. The file is a
+plain HTML document with an optional YAML frontmatter on top:
+
+```html
+---
+title: Repo status     # tab label (default: file name)
+reload: true           # reload the page when the file changes (default true)
+cwd: .                 # working dir for exec/CLI calls, relative to this file
+---
+<!doctype html>
+<meta charset="utf-8">
+<style>body { background: var(--ckp-bg); color: var(--ckp-text) }</style>
+<button onclick="run()">git status</button>
+<pre id="out"></pre>
+<script>
+async function run() {
+  const r = await cockpit("exec git status --short");
+  document.getElementById("out").textContent = r.ok ? r.stdout : r.error;
+}
+</script>
+```
+
+The bridge is one function. `await cockpit("<line>")` runs `cockpit <line>`
+exactly as you would type it in a tab, and resolves to
+`{ok, code, stdout, stderr, json, error}`: `json` is the parsed stdout when
+the verb printed JSON (`list-tabs --json`, `db query`, `exec --json`),
+`error` is the stderr (or the exit code) when `ok` is false. Anything the CLI
+can do, a panel can do: `db query main 'select ...'`, `exec npm test`,
+`send --tab-id t3 --enter 'make'`, `run-task npm:dev`, `note add ...`.
+`cockpit.on("theme", vars => ...)` fires when the app theme changes;
+`cockpit.theme` holds the current `--ckp-*` CSS variables (`--ckp-bg`,
+`--ckp-text`, `--ckp-text-muted`, `--ckp-border`, `--ckp-code-bg`,
+`--ckp-link`, `--ckp-accent`), already set on `:root` so plain CSS can use
+them (also `--ckp-bg-raised`, `--ckp-text-secondary`, `--ckp-border-strong`,
+`--ckp-accent-soft`, `--ckp-accent-text`, `--ckp-ok`, `--ckp-warn`,
+`--ckp-error`). Relative assets (`<img src="chart.png">`,
+`<script src="app.js">`) resolve inside the file's folder only. External links
+open in the OS browser. There is no allowlist: a panel can run anything the
+human could run in a tab, so only put in it what you would type yourself.
+
+### Bundled libraries (`/__cockpit__/…`) — no network, no build step
+
+The app ships a small set of libraries and serves them at the reserved path
+`/__cockpit__/<name>`. Use these instead of a CDN: they work offline, are the
+same version on every machine, and never touch the user's repo. Prefer them for
+anything beyond a plain page.
+
+| URL | What | Use it for |
+|---|---|---|
+| `/__cockpit__/cockpit.css` | classless base styles + a few utilities, themed by `--ckp-*` | **always include it first**: tables, buttons, inputs, `.card`, `.stat`, `.badge`, `.row/.col/.grid`, `.tabs` look native and follow the app theme |
+| `/__cockpit__/petite-vue.js` | petite-vue 0.4 (Vue syntax, 6 KB, `PetiteVue.createApp`) | reactive state, lists, forms, conditional views. Default choice for any interactive panel |
+| `/__cockpit__/chart.js` | Chart.js 4 (UMD, `new Chart(canvas, cfg)`) | dashboards: line/bar/pie over `db query` / `exec` output |
+| `/__cockpit__/marked.js` | marked 15 (`marked.parse(md)`) | render markdown from notes, results, README |
+| `/__cockpit__/tailwind.js` | Tailwind v4 browser build (runtime JIT, ~250 KB) | only when you want utility classes instead of `cockpit.css`; heavier to load |
+
+`cockpit.route` gives hash routing for multi-page panels in one file:
+`cockpit.route.path` (`"/"`, `"/job/3"`), `cockpit.route.go("/job/3")`,
+`cockpit.route.match("/job/:id")` → `{id:"3"}` or `null`, and
+`cockpit.on("route", r => ...)` on every change. Use `<a href="#/job/3">` for
+links. Do not link to another `.panel` file: navigation to a second file
+renders it as raw HTML (its frontmatter is only read for the opened tab).
+
+Minimal reactive dashboard (copy this shape):
+
+```html
+---
+title: Git dashboard
+---
+<!doctype html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/__cockpit__/cockpit.css">
+<script src="/__cockpit__/petite-vue.js"></script>
+<script src="/__cockpit__/chart.js"></script>
+<div v-scope="App()" @vue:mounted="load" v-cloak>
+  <div class="tabs">
+    <button :class="{active: page==='/'}" @click="cockpit.route.go('/')">Status</button>
+    <button :class="{active: page==='/log'}" @click="cockpit.route.go('/log')">Log</button>
+  </div>
+  <div v-if="page==='/'" class="grid">
+    <div class="card stat"><span class="value">{{ files.length }}</span><span class="label">changed files</span></div>
+    <div class="card"><canvas id="chart"></canvas></div>
+  </div>
+  <table v-else><tr v-for="l in log"><td class="mono">{{ l }}</td></tr></table>
+  <p v-if="error" class="error">{{ error }}</p>
+</div>
+<script>
+function App() {
+  return {
+    page: cockpit.route.path, files: [], log: [], error: '',
+    async load() {
+      cockpit.on('route', r => { this.page = r.path; });
+      const st = await cockpit('exec git status --short');
+      if (!st.ok) { this.error = st.error; return; }
+      this.files = st.stdout.split('\n').filter(Boolean);
+      const lg = await cockpit('exec git log --oneline -20');
+      this.log = lg.ok ? lg.stdout.split('\n').filter(Boolean) : [];
+      new Chart(document.getElementById('chart'), { type: 'bar',
+        data: { labels: ['changed'], datasets: [{ data: [this.files.length],
+          backgroundColor: cockpit.theme['--ckp-accent'] }] } });
+    },
+  };
+}
+PetiteVue.createApp().mount();
+</script>
+```
+
+Rules of thumb: `cockpit.css` first, petite-vue for state, one `.panel` per
+tool, hash routes for sub-pages, `cockpit.theme['--ckp-*']` for chart colors
+(re-draw on `cockpit.on('theme')`). Reach for `tailwind.js` only when the
+layout is genuinely custom; for a data dashboard the base CSS is enough.
+
+## Notebooks (`*.notebook`)
+
+A folder whose name ends in `.notebook` is a **notebook**: one markdown file
+per note, each with a small YAML frontmatter. The app shows the folder as a
+single item in the file tree and opens it as a notes tab — notes grouped by
+tag on the left, the note on the right. Obsidian opens the same folder as-is.
+
+Write notes here while you work when the human should be able to read them
+later: findings, decisions, open questions, a summary of what you changed.
+Prefer **many short notes with tags** over one long file.
+
+```markdown
+---
+title: Túnel SSH no host
+tags: [relay, agent]
+created: 2026-09-07T10:12
+updated: 2026-09-07T11:40
+---
+
+Body in plain markdown.
+```
+
+The easy way is the verb — it writes the frontmatter for you, picks a unique
+file name (`2026-09-07-tunel-ssh-no-host.md`) and refreshes the open tab:
+
+```sh
+cockpit note add notes.notebook --title "Túnel SSH no host" --tag relay \
+  --body "Porta 2222 fechada no firewall; abri via ufw."
+cockpit note add notes.notebook --title "Resumo da sessão" --body - <<'NOTE'
+- Corrigi o parser do .kanban
+- Falta: testes do watcher
+NOTE
+cockpit note list notes.notebook          # title  [tags]  path
+```
+
+Rules that matter:
+- `--tag` may repeat. The **`agent` tag is always added** by the verb — it is
+  how the human tells your notes from theirs. Keep it if you edit a note by
+  hand.
+- A note without frontmatter still works (title = file name, no tag), so
+  editing an existing `.md` with your normal file tools is fine. The tab
+  reloads by itself.
+- The **file name never changes** when the title changes; the title is
+  metadata. Don't rename files to "fix" titles.
+- Keep the frontmatter keys as they are (`title`, `tags`, `created`,
+  `updated`); the app rewrites only those lines and leaves the body untouched.
+- **Link notes with `[[Title]]`** (exact title, case-insensitive). The app
+  renders it as a clickable chip and lists backlinks on the target note. Use
+  it to connect a finding to the decision it led to, or a summary to the
+  notes it summarizes.
+- Images: put files under `_assets/` inside the notebook and reference them
+  as `![](_assets/name.png)` — the app draws them inline.
+
+## Telemetry (the error store) — query it instead of reading terminals
+
+The app keeps a structured, per-workspace store of what the workspace's
+processes print: errors grouped by fingerprint (type + normalized message +
+first project frame), JSON log lines with their fields, and raw lines with a
+guessed level. **Every task the app runs feeds it by default.** Anything you
+run yourself enters it only through the wrapper.
+
+### Rule of thumb
+
+- If a task exists for what you want to run: `cockpit run-task <id>` (already
+  observed). Otherwise **prefix the command**: `cockpit telemetry flutter test`,
+  `cockpit telemetry --name api npm run dev`. Works from your own shell
+  (pipes) and from a terminal tab (nested PTY, keys and colors preserved).
+- Never `read-tab` thousands of lines when a run exists. The wrapper prints a
+  summary line at exit; follow it:
+
+  ```
+  telemetry: run r_42 · 3 errors · 12 warnings · cockpit telemetry errors --run r_42
+  ```
+
+### The loop
+
+```sh
+cockpit telemetry flutter test            # run → summary line
+cockpit telemetry errors --run r_42       # grouped cases, ids e_xxxx
+cockpit telemetry show e_3f2a             # stack (project frames flagged), the
+                                          # JSON log right before it, context lines
+# fix the code, then either run again, or on a dev server with hot reload:
+cockpit telemetry wait --fingerprint e_3f2a --absent 30s   # ok | hit | inconclusive
+cockpit telemetry resolve e_3f2a --reason "off-by-one in CartService.add"
+```
+
+Useful filters: `--new` (never seen in earlier runs of the same command),
+`--since-edit` (since the human's last editor save), `--since 10m`,
+`--before ev_xxxx --window 5s`, `--project <root>`, `--text <words>`,
+`--probe <name>`. Replies are capped: `"truncated": true` comes with a `hint`.
+Human triage is respected: resolved/ignored cases are hidden unless you pass
+`--include-resolved` / `--include-ignored`. A resolved case that comes back is
+flagged `"regression": true`.
+
+### Make the project speak telemetry (permanent instrumentation)
+
+One rule: **the project's logger emits JSON Lines to stdout**. No SDK.
+
+| Stack | Recipe |
+|---|---|
+| Flutter / Dart | `logging` package with a listener doing `print(jsonEncode({...}))`; also `FlutterError.onError` and `PlatformDispatcher.instance.onError` printing `{"level":"error","msg":..., "err":{"type":..., "message":..., "stack":...}}` |
+| Node / TS | `pino` (JSON by default) or `console.log(JSON.stringify({...}))` |
+| Python | `structlog` with `JSONRenderer`, or `python-json-logger` |
+| Rust | `tracing-subscriber` with `.json()` |
+| Go | `slog.NewJSONHandler(os.Stdout, nil)` |
+
+Canonical shape (aliases accepted: `severity`/`lvl`, `message`, `ts`/`timestamp`,
+`error`/`stack`; pino's numeric levels work):
+
+```json
+{"level":"error","msg":"cart add failed","err":{"type":"RangeError","message":"index 3 of 2","stack":"#0 ..."},"itemId":"abc","total":42}
+```
+
+**Write messages that group well**: keep `msg` fixed and put variable data in
+fields. `"msg":"order failed","orderId":"91c"` is one case; `"msg":"order 91c
+failed"` becomes one case per order.
+
+Do **not** gate logs on `COCKPIT_*` env vars: the app must behave the same
+inside and outside Cockpit (the vars never reach a phone or a container
+anyway). Control verbosity with the project's own knob (`LOG_LEVEL`,
+`kReleaseMode`), set per task via `env` in `.cockpit/tasks.json`.
+
+### Temporary probes while investigating
+
+Sprinkle JSON prints with a `probe` field, e.g.
+`print(jsonEncode({'probe':'cart','items':cart.length}))`, then filter with
+`cockpit telemetry logs --probe cart`. **Never commit a probe**:
+`cockpit telemetry probes` lists added lines in the working tree that still
+carry one; remove them before committing.
+
+### Per-task opt-out and config
+
+`"telemetry": false` on a task in `.cockpit/tasks.json` keeps that task out.
+`.cockpit/telemetry.json` (optional, versioned) can add `unwrap` regexes for
+odd log prefixes and `ignore` patterns.
+
+### The app's own errors (`--app`)
+
+The app is a source too: one run per boot ("Cockpit", `source: app`) holds
+the errors its global handlers caught and the warnings its fallbacks emit.
+When something in Cockpit itself misbehaves (a tab that would not restore, a
+remote listing that came back empty, a slow spawn), look there before
+guessing:
+
+```sh
+cockpit telemetry errors --app                # framework/async errors, grouped
+cockpit telemetry logs --app --level warn     # fallbacks the app took
+cockpit telemetry show e_xxxx --app
+```
+
+`--app` works with every query verb. The store only fills while
+**Settings → General → Developer mode** is on (it is off by default); with
+it on, performance metrics land in the same run and
+`cockpit telemetry perf --app` prints P50/P95/max per metric.
 
 ## Target (--tab-id)
 

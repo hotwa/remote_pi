@@ -782,7 +782,10 @@ class _DbConnectionDialogState extends State<DbConnectionDialog> {
                     padding: const EdgeInsets.only(top: 4),
                     child: Text(
                       context.t.cockpit.dbConnectionDialog.passwordOnHost,
-                      style: typo.label.copyWith(fontSize: 10.5, color: colors.text4),
+                      style: typo.label.copyWith(
+                        fontSize: 10.5,
+                        color: colors.text4,
+                      ),
                     ),
                   ),
               ],

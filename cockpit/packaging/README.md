@@ -48,8 +48,9 @@ linux/packaging/rpm/make_config.yaml
 ## macOS — build + sign + DMG + notarize + staple (ponta a ponta)
 
 Validado localmente em 2026-06-12 (DMG aceito pelo Gatekeeper). Pré-requisitos:
-identidade **"Developer ID Application: Jacob Moura (U843T2P7A2)"** no Keychain e
-a API key do App Store Connect.
+identidade **"Developer ID Application: Jacob Moura (U843T2P7A2)"** no Keychain,
+a API key do App Store Connect, Zig 0.16.0 e o target Rust usado pela CLI do
+servidor Linux remoto (`rustup target add aarch64-unknown-linux-gnu`).
 
 ```bash
 cd cockpit
@@ -158,6 +159,37 @@ de CI** (passo 3): rodar `ldd` no bundle gerado pra confirmar/expandir as deps, 
 validar instalação em containers `ubuntu:24.04` (deb) e `fedora:40` (rpm) — não
 foi possível neste Mac (sem build Linux; Docker presente mas parado).
 
+## cockpit-server avulso — zip para VPS (Linux x86_64 e arm64)
+
+Release **separada** do app: tag `cockpit-server-v<versão>` dispara
+`.github/workflows/cockpit-server-release.yml` (dois jobs Linux nativos, sem
+Flutter). A versão da tag **deve** bater com o `version:` do pubspec: cliente
+e servidor andam juntos, o mobile recusa versão diferente. Crie as duas tags
+(`cockpit-v…` e `cockpit-server-v…`) no mesmo commit.
+
+Artefatos: `cockpit-server-<versão>-linux-{x86_64,arm64}.zip` + `SHA256SUMS`.
+Layout (ver `tool/build-server-zip.sh`):
+
+```
+cockpit-server/
+├── bin/{cockpit-server,cockpit}
+├── lib/{libcockpit_pty.so,libanaki_*.so}
+├── bundle.manifest   # sha256sum -c, mesmo formato que o cliente grava por SSH
+├── VERSION           # linha 1 versão, linha 2 arch
+└── install.sh        # packages/cockpit_server/install.sh
+```
+
+Instalação no host: `curl -fsSL https://remote-pi.jacobmoura.work/cockpit-server.sh | bash`
+(script em `cockpit/install-server.sh`, só resolve versão e arch, baixa, confere o hash e
+chama o `install.sh` do zip). `--service` registra a unit `systemd --user`
+via `cockpit-server service install|uninstall|status`. Documentação: seção
+"Remote hosts & VPS" em `site/src/app/cockpit/docs/page.tsx`.
+
+Observação: o bundle do zip e o embarcado no app são compilados em runners
+diferentes, então os bytes podem divergir e o desktop pode reinstalar por cima
+na primeira conexão (digest do manifesto diferente). É inofensivo; se virar
+incômodo, o job do app passa a consumir o zip.
+
 ## Self-update (plano 47 — Sparkle/WinSparkle)
 
 macOS e Windows se auto-atualizam via o pacote `auto_updater` (Sparkle/WinSparkle);
@@ -229,3 +261,17 @@ URLs são `https://rp-s3.jacobmoura.work/downloads/cockpit/appcast-{macos,window
 - Passo 4: layout/`latest.json` na VPS.
 - Passo 5: página de downloads no `site/`.
 - Passo 6: runbook de release (bump `version:` → tag → CI → smoke test).
+# Linux: política de GPU híbrida
+
+O bootstrap nativo do Cockpit seleciona a GPU integrada e XWayland por padrão e
+remove, somente do processo do Cockpit, variáveis NVIDIA herdadas da sessão
+gráfica. Isso evita que o EGL da NVIDIA entre no processo em sessões Wayland
+híbridas. Um `GDK_BACKEND` definido explicitamente continua sendo respeitado.
+Para comparar ou forçar a GPU dedicada, inicie com
+`COCKPIT_USE_NVIDIA=1 cockpit`. O startup log registra `gpu_policy`,
+`GDK_BACKEND` e `XDG_SESSION_TYPE` sem registrar comandos ou conteýo do usuário.
+
+Matriz de diagnóstico Linux: Intel/XWayland é o caminho seguro de produção;
+compare NVIDIA/Wayland com `COCKPIT_USE_NVIDIA=1 GDK_BACKEND=wayland cockpit` e
+Intel/Wayland com `GDK_BACKEND=wayland cockpit`. Rollback é remover a chamada
+`configure_linux_gpu_environment()`; nenhuma configuração global é alterada.

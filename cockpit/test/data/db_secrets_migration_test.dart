@@ -92,13 +92,29 @@ class _SpyLegacy implements FlutterSecureStorage {
   final reads = <String>[];
 
   @override
-  Future<String?> read({required String key, dynamic iOptions, dynamic aOptions, dynamic lOptions, dynamic wOptions, dynamic mOptions, dynamic webOptions}) async {
+  Future<String?> read({
+    required String key,
+    dynamic iOptions,
+    dynamic aOptions,
+    dynamic lOptions,
+    dynamic wOptions,
+    dynamic mOptions,
+    dynamic webOptions,
+  }) async {
     reads.add(key);
     return values[key];
   }
 
   @override
-  Future<void> delete({required String key, dynamic iOptions, dynamic aOptions, dynamic lOptions, dynamic wOptions, dynamic mOptions, dynamic webOptions}) async {
+  Future<void> delete({
+    required String key,
+    dynamic iOptions,
+    dynamic aOptions,
+    dynamic lOptions,
+    dynamic wOptions,
+    dynamic mOptions,
+    dynamic webOptions,
+  }) async {
     values.remove(key);
   }
 

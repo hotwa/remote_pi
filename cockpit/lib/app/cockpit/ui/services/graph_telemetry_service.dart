@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cockpit/app/cockpit/ui/session/agent_session.dart';
 import 'package:cockpit/app/cockpit/ui/session/pane_item.dart';
 import 'package:cockpit/app/cockpit/ui/session/terminal_session.dart';
 import 'package:cockpit/app/core/domain/entities/harness.dart';
@@ -52,7 +51,6 @@ class GraphTelemetryService {
   const GraphTelemetryService();
 
   Future<GraphTelemetrySnapshot> snapshot(PaneItem pane) async {
-    if (pane is AgentSession) return _piSnapshot(pane);
     if (pane is TerminalSession) {
       final activity = switch (pane.status) {
         TerminalStatus.working => GraphActivity.working,
@@ -106,36 +104,6 @@ class GraphTelemetryService {
     return const GraphTelemetrySnapshot(
       activity: GraphActivity.unknown,
       activitySource: 'unavailable',
-    );
-  }
-
-  GraphTelemetrySnapshot _piSnapshot(AgentSession pane) {
-    final activity = switch (pane.status) {
-      AgentStatus.streaming => GraphActivity.working,
-      AgentStatus.booting => GraphActivity.starting,
-      AgentStatus.idle => GraphActivity.idle,
-      AgentStatus.crashed || AgentStatus.empty => GraphActivity.stopped,
-    };
-    final usage = pane.contextUsage;
-    final updatedAt = pane.contextUsageUpdatedAt;
-    return GraphTelemetrySnapshot(
-      activity: activity,
-      activitySource: 'Pi RPC',
-      contextTokens: usage?.tokens == null || updatedAt == null
-          ? null
-          : GraphMetric(
-              usage!.tokens!,
-              source: 'Pi get_session_stats',
-              observedAt: updatedAt,
-            ),
-      contextWindow:
-          usage == null || usage.contextWindow <= 0 || updatedAt == null
-          ? null
-          : GraphMetric(
-              usage.contextWindow,
-              source: 'Pi get_session_stats',
-              observedAt: updatedAt,
-            ),
     );
   }
 

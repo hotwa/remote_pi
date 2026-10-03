@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:cockpit/app/cockpit/domain/entities/workspace_graph.dart';
 import 'package:cockpit/app/cockpit/domain/contracts/process_metrics_provider.dart';
 import 'package:cockpit/app/cockpit/domain/entities/process_metrics_snapshot.dart';
-import 'package:cockpit/app/cockpit/ui/session/agent_session.dart';
 import 'package:cockpit/app/cockpit/ui/session/pane_item.dart';
 import 'package:cockpit/app/cockpit/ui/session/terminal_session.dart';
 import 'package:cockpit/app/cockpit/ui/viewmodels/cockpit_viewmodel.dart';
@@ -109,7 +108,7 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
     final bound = saved.map((b) => b.tabId).toSet();
     final sessions = vm.allSessions
         .where((s) => s.projectId == vm.selectedProjectId)
-        .where((s) => s is TerminalSession || s is AgentSession)
+        .whereType<TerminalSession>()
         .where((s) => !bound.contains(s.id))
         .toList();
     final layoutKey =
@@ -175,7 +174,13 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
           id: sessions[i].id,
           title: sessions[i].displayTitle,
           role: '',
-          harness: sessions[i] is AgentSession ? 'pi' : '',
+          harness: sessions[i] is TerminalSession
+              ? switch ((sessions[i] as TerminalSession).activeHarness?.name) {
+                  'claudeCode' => 'claude',
+                  final name? => name,
+                  null => '',
+                }
+              : '',
           model: '',
           position: _legacyPositions[sessions[i].id]!,
           tabId: sessions[i].id,
@@ -410,9 +415,7 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
   );
   Future<void> _compact(GraphBox box) async {
     final session = widget.vm.session(box.tabId ?? '');
-    if (session is AgentSession) {
-      await session.compact();
-    } else if (session is TerminalSession &&
+    if (session is TerminalSession &&
         session.activeHarness != null &&
         !session.isWorking) {
       session.insertText('/compact\r');
@@ -428,9 +431,7 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
       'Função: ${box.role}\n\nEstado atual e próximos passos:\n',
     );
     if (!mounted || brief == null || brief.isEmpty) return;
-    if (session is AgentSession) {
-      if (await session.startNewSession()) await session.send(brief);
-    } else if (session is TerminalSession) {
+    if (session is TerminalSession) {
       final created = widget.vm.startGraphHandoff(box.id);
       if (created case Success(:final value)) {
         await Clipboard.setData(ClipboardData(text: brief));
@@ -754,9 +755,8 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
                     box: selectedBox,
                     hasSession: selectedSession != null,
                     agentRunning:
-                        selectedSession is AgentSession ||
                         selectedSession is TerminalSession &&
-                            selectedSession.activeHarness != null,
+                        selectedSession.activeHarness != null,
                     links: widget.vm.graphLinks
                         .where(
                           (l) =>
@@ -987,7 +987,6 @@ class _GraphBoxCard extends StatelessWidget {
         : metric?.activity.name ??
               switch (session) {
                 TerminalSession(:final status) => status.name,
-                AgentSession(:final status) => status.name,
                 null => 'stopped',
                 _ => 'idle',
               };

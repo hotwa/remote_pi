@@ -6,10 +6,10 @@ import 'package:cockpit/app/app_module.dart';
 import 'package:cockpit/app/app_widget.dart';
 import 'package:cockpit/app/cockpit/data/hooks/claude_hook_installer_impl.dart';
 import 'package:cockpit/app/cockpit/data/hooks/codex_hook_installer_impl.dart';
-import 'package:cockpit/app/cockpit/data/rpc/pi_process_registry.dart';
 import 'package:cockpit/app/cockpit/data/terminal/sidecar/sidecar_terminal_connector.dart';
 import 'package:cockpit/app/cockpit/data/tasks/task_process_registry.dart';
 import 'package:cockpit/app/cockpit/domain/contracts/hook_installer.dart';
+import 'package:cockpit/app/cockpit/data/telemetry/app_telemetry_bridge.dart';
 import 'package:cockpit/app/core/data/diagnostics/diagnostics_log.dart';
 import 'package:cockpit/app/core/data/lsp/lsp_process_registry.dart';
 import 'package:cockpit/app/core/data/repositories/json_settings_store.dart';
@@ -17,11 +17,12 @@ import 'package:cockpit/app/core/utils/platform_kind.dart';
 import 'package:cockpit/app/core/data/setup/hive_migration.dart';
 import 'package:cockpit/app/core/data/setup/local_network_permission.dart';
 import 'package:cockpit/app/core/data/setup/json_state_store.dart';
+import 'package:cockpit/app/cockpit/ui/document/open_files_channel.dart';
 import 'package:cockpit/app/core/data/setup/storage_location.dart';
 import 'package:cockpit/app/core/data/theme_store.dart';
 import 'package:cockpit/app/core/domain/entities/app_settings.dart';
 import 'package:cockpit/app/core/domain/services/window_placement.dart';
-import 'package:cockpit/app/core/env.dart';
+import 'package:cockpit/app/core/ui/keep_awake_controller.dart';
 import 'package:cockpit/app/core/ui/automation_controller.dart';
 import 'package:cockpit/app/core/ui/menu/editor_menu_bridge.dart';
 import 'package:cockpit/app/core/ui/menu/workspace_menu_bridge.dart';
@@ -107,6 +108,9 @@ class _CockpitBootstrapperState extends State<CockpitBootstrapper> {
         } on Object catch (e, stack) {
           DiagnosticsLog.instance.logError('exit-sidecar', e, stack);
         }
+        // Fecha o run do app na Telemetria (plano 68) antes do marcador de
+        // saída limpa: a base fica com `endedAt`/exit 0 em vez de run "vivo".
+        await AppTelemetryBridge.instance.close();
         DiagnosticsLog.instance.markCleanExit();
         return AppExitResponse.exit;
       },
@@ -158,6 +162,9 @@ class _CockpitBootstrapperState extends State<CockpitBootstrapper> {
           _winStore = winStore;
         });
       }
+      // Arquivos abertos pelo Finder (a frio ou com o app vivo) → janela de
+      // documento. Liga cedo: o buffer nativo já pode ter caminhos.
+      if (!isMobilePlatform) unawaited(OpenFilesChannel.bind());
 
       // 2. Restaura bounds e mostra a janela já — a árvore está renderizando a
       // LoadingScreen no tema carregado acima.
@@ -181,9 +188,8 @@ class _CockpitBootstrapperState extends State<CockpitBootstrapper> {
         unawaited(LocalNetworkPermission.prime());
 
         // Mata filhos órfãos desta instância ou de instâncias já encerradas,
-        // preservando agents/LSP/tasks de outros Cockpits ainda vivos.
+        // preservando LSP/tasks de outros Cockpits ainda vivos.
         await Future.wait([
-          PiProcessRegistry.cleanOrphans(),
           LspProcessRegistry.cleanOrphans(),
           TaskProcessRegistry.cleanOrphans(),
         ]);
@@ -206,11 +212,7 @@ class _CockpitBootstrapperState extends State<CockpitBootstrapper> {
           }
         }
 
-        final config = await PiSpawnConfig.resolve();
-        _appModule = await buildAppModule(
-          config: config,
-          windowActivity: _windowActivity,
-        );
+        _appModule = await buildAppModule(windowActivity: _windowActivity);
       })();
 
       await Future.wait([initTask, Future.delayed(_splashFloor)]);
@@ -456,6 +458,8 @@ class _CockpitBootstrapperState extends State<CockpitBootstrapper> {
           ..addChangeNotifier<AutomationController>(
             () => inject<AutomationController>(),
           )
+          // Botão "Keep awake" do rail: assertion da máquina, efêmera, app-scoped.
+          ..addChangeNotifier<KeepAwakeController>(KeepAwakeController.new)
           ..addChangeNotifier<EditorMenuBridge>(EditorMenuBridge.new)
           ..addChangeNotifier<WorkspaceMenuBridge>(WorkspaceMenuBridge.new),
         child: const AppRoot(),
@@ -481,7 +485,7 @@ class WindowStateKeeper extends StatefulWidget {
 }
 
 class WindowStateKeeperState extends State<WindowStateKeeper>
-    with WindowListener {
+    with WindowListener, WidgetsBindingObserver {
   Timer? _debounce;
 
   /// O fechamento começou — daqui pra frente **nada** pergunta nada à janela.
@@ -509,7 +513,26 @@ class WindowStateKeeperState extends State<WindowStateKeeper>
     // O listener entra antes do snapshot: se a janela mudar durante os awaits,
     // o synchronizer preserva o evento mais novo e descarta a leitura obsoleta.
     windowManager.addListener(this);
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_activitySync.synchronize());
+  }
+
+  /// "Usuário ausente" é do APP, não desta janela: com uma janela de
+  /// documento em foco a principal perde o key window, mas o usuário continua
+  /// aqui — pausar git poll, monitor de harness e chime nessa hora parecia a
+  /// janela "congelada". O lifecycle do app só vai a `inactive` quando o
+  /// processo inteiro perde a ativação (outro app na frente).
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _activitySync.focus();
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        _activitySync.blur();
+    }
   }
 
   Future<WindowActivitySnapshot> _readNativeActivity() async =>
@@ -521,6 +544,7 @@ class WindowStateKeeperState extends State<WindowStateKeeper>
   @override
   void dispose() {
     windowManager.removeListener(this);
+    WidgetsBinding.instance.removeObserver(this);
     _debounce?.cancel();
     super.dispose();
   }
@@ -534,8 +558,20 @@ class WindowStateKeeperState extends State<WindowStateKeeper>
   @override
   void onWindowFocus() => _activitySync.focus();
 
+  /// Blur da JANELA não é ausência (ver [didChangeAppLifecycleState]): se o
+  /// app continua ativo, outra janela nossa é que ficou key. Só confirma o
+  /// blur quando o lifecycle diz que o app inteiro saiu de foco — com um
+  /// respiro, porque o resignKey chega antes da mudança de lifecycle.
   @override
-  void onWindowBlur() => _activitySync.blur();
+  void onWindowBlur() {
+    Future<void>.delayed(const Duration(milliseconds: 120), () {
+      if (!mounted) return;
+      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        return;
+      }
+      _activitySync.blur();
+    });
+  }
 
   @override
   void onWindowMinimize() => _activitySync.minimize();
@@ -597,6 +633,8 @@ class WindowStateKeeperState extends State<WindowStateKeeper>
   /// o `destroy()` roda no `finally`.
   @override
   Future<void> onWindowClose() async {
+    final closeClock = Stopwatch()..start();
+    DiagnosticsLog.instance.log('close', 'pedido recebido');
     // ORDEM IMPORTA. O listener sai PRIMEIRO: destruir a janela faz o GTK
     // emitir os eventos finais, e um `onWindowResize` atendido depois disso
     // pergunta a uma janela morta se está maximizada — SIGSEGV dentro do GTK.
@@ -615,6 +653,10 @@ class WindowStateKeeperState extends State<WindowStateKeeper>
     } on Object catch (_) {
       /* o próprio markCleanExit já é best-effort */
     } finally {
+      DiagnosticsLog.instance.log(
+        'close',
+        'até destroy: ${closeClock.elapsedMilliseconds}ms',
+      );
       await windowManager.destroy();
     }
   }

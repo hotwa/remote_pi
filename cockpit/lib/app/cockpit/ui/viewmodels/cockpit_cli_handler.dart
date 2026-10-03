@@ -1,6 +1,9 @@
+import 'dart:async' show unawaited;
 import 'dart:convert';
-import 'dart:io' show Directory, File, FileSystemException;
+import 'dart:io' show Directory, File, FileSystemException, Platform;
 
+import 'package:cockpit/app/cockpit/domain/entities/layout_spec.dart';
+import 'package:cockpit/app/core/data/diagnostics/diagnostics_log.dart';
 import 'package:cockpit/app/cockpit/domain/contracts/http_request_runner.dart';
 import 'package:cockpit/app/cockpit/domain/contracts/task_discovery.dart';
 import 'package:cockpit/app/cockpit/domain/contracts/task_runner_gateway.dart';
@@ -9,18 +12,28 @@ import 'package:cockpit/app/cockpit/domain/entities/db_connection.dart';
 import 'package:cockpit/app/cockpit/domain/entities/db_result.dart';
 import 'package:cockpit/app/cockpit/domain/entities/dbq_document.dart';
 import 'package:cockpit/app/cockpit/domain/entities/http_document.dart';
+import 'package:cockpit/app/cockpit/domain/entities/notebook_document.dart';
 import 'package:cockpit/app/cockpit/domain/exceptions/http_request_error.dart';
 import 'package:cockpit/app/cockpit/domain/entities/project.dart';
+import 'package:cockpit/app/cockpit/domain/entities/task_definition.dart';
+import 'package:cockpit/app/cockpit/domain/entities/remote_host.dart';
+import 'package:cockpit/app/cockpit/domain/entities/remote_workspace_pin.dart';
+import 'package:cockpit/app/cockpit/data/remote/ssh_tunnel.dart';
 import 'package:cockpit/app/cockpit/domain/entities/sql_statements.dart';
 import 'package:cockpit/app/cockpit/domain/services/db_access_gate.dart';
 import 'package:cockpit/app/cockpit/domain/services/db_query_service.dart';
 import 'package:cockpit/app/cockpit/domain/services/mongo_browse_service.dart';
 import 'package:cockpit/app/cockpit/domain/entities/browser_capability.dart';
 import 'package:cockpit/app/core/domain/result.dart';
-import 'package:cockpit/app/cockpit/ui/session/agent_session.dart';
+import 'package:cockpit/app/core/utils/path_utils.dart';
+import 'package:cockpit/app/core/utils/shell_command.dart';
+import 'package:cockpit/app/cockpit/ui/document/document_windows.dart';
+import 'package:cockpit/app/cockpit/ui/session/empty_tab.dart';
 import 'package:cockpit/app/cockpit/ui/session/browser_session.dart';
+import 'package:cockpit/app/cockpit/ui/session/notebook_session.dart';
 import 'package:cockpit/app/cockpit/ui/session/file_viewer_session.dart';
 import 'package:cockpit/app/cockpit/ui/session/mongo_browser_session.dart';
+import 'package:cockpit/app/cockpit/ui/session/neovim_session.dart';
 import 'package:cockpit/app/cockpit/ui/session/pane_item.dart';
 import 'package:cockpit/app/cockpit/ui/session/redis_browser_session.dart';
 import 'package:cockpit/app/cockpit/ui/session/task_output_session.dart';
@@ -29,6 +42,7 @@ import 'package:cockpit/app/cockpit/ui/session/terminal_read_window.dart';
 import 'package:cockpit/app/cockpit/ui/session/terminal_session.dart';
 import 'package:cockpit/app/cockpit/ui/states/pane_node.dart' show SplitDir;
 import 'package:cockpit/app/cockpit/ui/viewmodels/cockpit_viewmodel.dart';
+import 'package:cockpit/app/cockpit/ui/viewmodels/telemetry_cli_handler.dart';
 
 /// Atende os comandos da CLI interna `cockpit` (mesmo socket do
 /// `TerminalStatusServer`), extraído do `CockpitViewModel` (refactor
@@ -43,14 +57,70 @@ class CockpitCliHandler {
     this._tasks,
     this._taskRuns,
     this._taskTerms,
+    this._telemetry,
   );
 
   final CockpitViewModel _vm;
+  final TelemetryCliHandler _telemetry;
   final DbQueryService _db;
   final HttpRequestRunner _http;
   final TaskDiscovery _tasks;
   final TaskRunnerGateway _taskRuns;
   final TaskTerminalStore _taskTerms;
+
+  /// Contexto de tasks REMOTO por workspace (plano 58): a página pluga a
+  /// mesma fábrica que serve o painel Tasks (par descoberta + runner do host,
+  /// cacheado por host). `null` = workspace local. Sem isto, `list-tasks` numa
+  /// aba de host remoto tentava descobrir tasks num caminho que só existe lá.
+  ({TaskDiscovery discovery, TaskRunnerGateway runner})? Function(
+    String workspaceId,
+  )?
+  remoteContextFor;
+
+  /// Workspace + raiz de tasks + (descoberta, runner) do comando: workspace da
+  /// aba emissora (default da CLI = a própria tab) ou o selecionado. Remoto
+  /// resolve pelo [remoteContextFor]; local usa os binds do módulo.
+  ({
+    Project project,
+    String root,
+    TaskDiscovery discovery,
+    TaskRunnerGateway runner,
+  })?
+  _taskContext(CockpitCommand c) {
+    final sender = c.tabId == null ? null : _vm.session(c.tabId!);
+    final project = sender != null
+        ? _vm.projectById(sender.projectId)
+        : _vm.selectedProject;
+    final root = project?.effectiveRoot ?? '';
+    if (project == null || project.isSystemTerminal || root.isEmpty) {
+      return null;
+    }
+    final remote = remoteContextFor?.call(project.id);
+    return (
+      project: project,
+      root: root,
+      discovery: remote?.discovery ?? _tasks,
+      runner: remote?.runner ?? _taskRuns,
+    );
+  }
+
+  /// Task [taskId] do contexto [ctx], ou `null` se não existe nele.
+  Future<TaskDefinition?> _findTask(
+    ({
+      Project project,
+      String root,
+      TaskDiscovery discovery,
+      TaskRunnerGateway runner,
+    })
+    ctx,
+    String taskId,
+  ) async {
+    final defs = await ctx.discovery.discover(ctx.root);
+    for (final d in defs) {
+      if (d.id == taskId) return d;
+    }
+    return null;
+  }
 
   /// Atende um comando da CLI interna `cockpit` (via o mesmo socket do
   /// [TerminalStatusServer]). Roda **fora** da árvore de widgets — não toca
@@ -65,6 +135,16 @@ class CockpitCliHandler {
     if (c == null) {
       return const CockpitCommandResult.fail(
         'no focused tab (is a workspace open?)',
+      );
+    }
+    // Telemetria (plano 66): verbos `telemetry-*` têm handler próprio; o
+    // workspace é o da aba emissora (ou `--workspace`), como no `db`.
+    if (TelemetryCliHandler.handles(c.cmd)) {
+      // `--app` (plano 68): store do próprio Cockpit, sem workspace.
+      if (c.args['app'] == true) return _telemetry.handle(c, null, '');
+      return _projectCommand(
+        c,
+        (project, root) => _telemetry.handle(c, project, root),
       );
     }
     switch (c.cmd) {
@@ -142,7 +222,10 @@ class CockpitCliHandler {
         // Aba remota: o path é do HOST. Checar no disco do cliente daria
         // "file not found" (ou, pior, abriria um homônimo local) — quem valida
         // é o `fs.read` do outro lado, dentro de `openFile`.
-        if (!_isRemoteTab(c.tabId) && !await File(path).exists()) {
+        // `.notebook` é pasta e abre como caderno; o resto tem que ser arquivo.
+        if (!_isRemoteTab(c.tabId) &&
+            !await File(path).exists() &&
+            !(isNotebookFolder(path) && await Directory(path).exists())) {
           return CockpitCommandResult.fail('file not found: "$path"');
         }
         final from = c.tabId;
@@ -164,6 +247,41 @@ class CockpitCliHandler {
           );
         }
         await _vm.openFile(path, inPane: targetLeaf, isPreview: false);
+        return const CockpitCommandResult.ok();
+
+      // `open-document` — abre cada caminho numa janela de documento. Não é um
+      // verbo da CLI: é o que o SEGUNDO processo do Cockpit (duplo clique no
+      // Explorer/xdg) manda pro app vivo antes de sair (instância única no
+      // Windows/Linux, ver `RunningInstance`). Não depende de workspace ativo.
+      case 'open-document':
+        final raw = c.args['paths'];
+        final paths = raw is List
+            ? raw.map((e) => e.toString()).where((e) => e.isNotEmpty).toList()
+            : const <String>[];
+        if (paths.isEmpty) {
+          return const CockpitCommandResult.fail('missing paths');
+        }
+        for (final path in paths) {
+          if (await File(path).exists() || await Directory(path).exists()) {
+            unawaited(DocumentWindows.open(path));
+          }
+        }
+        return const CockpitCommandResult.ok();
+
+      // `apply-layout` — o botão Apply do viewer de `.ckp` aberto na JANELA DE
+      // DOCUMENTO. Também não é verbo da CLI (quem aplica layout por script é
+      // o `orchestrate`, que tem uma aba emissora para se ancorar): a janela
+      // solta não tem workspace, então empurra o caminho para o app, que
+      // resolve o destino e pede a confirmação com a janela na frente.
+      case 'apply-layout':
+        final path = (c.args['path'] ?? '').toString();
+        if (path.isEmpty) {
+          return const CockpitCommandResult.fail('missing path');
+        }
+        if (!await File(path).exists()) {
+          return CockpitCommandResult.fail('file not found: "$path"');
+        }
+        _vm.requestLayoutApply(path);
         return const CockpitCommandResult.ok();
 
       // `cockpit new-tab` — cria uma aba de terminal. A CLI já resolveu o cwd
@@ -254,6 +372,14 @@ class CockpitCliHandler {
             'tab "${s.id}" is not in any pane (already closed?)',
           );
         }
+        if (s is NeovimSession) {
+          final modified = await s.hasModifiedBuffers();
+          if (modified case Success(value: true)) {
+            return const CockpitCommandResult.fail(
+              'Neovim has modified buffers; close it from the UI to confirm',
+            );
+          }
+        }
         if (_vm.graphBoxForTab(s.id) != null) {
           return const CockpitCommandResult.fail(
             'This terminal belongs to a graph box. Close it in the Cockpit UI to choose whether to keep or remove the box.',
@@ -271,9 +397,89 @@ class CockpitCliHandler {
           'tabId': s.id,
         }, () => _vm.closeTab(closingLeaf, closingId));
 
-      // `cockpit orchestrate <file.ckp>` — aplica um layout de panes no
-      // workspace ativo. A CLI já resolveu o path pro absoluto. Merge
-      // idempotente (tab de mesmo nome = pulada); devolve {created, skipped}.
+      // `cockpit orchestrate <file.ckp> [--append]` — aplica um layout de
+      // panes no workspace ativo. A CLI já resolveu o path pro absoluto.
+      // Default = REPLACE (fecha as abas do workspace antes, sem diálogo: a
+      // CLI não pergunta); `--append` = merge idempotente antigo (tab de mesmo
+      // nome = pulada). Devolve {created, skipped, closed}.
+      // `cockpit note add <dir.notebook> --title T [--tag a]... [--body ...]`
+      // Cria a nota com frontmatter certo (tag `agent` sempre entra — é a
+      // marca de nota escrita por agente) e recarrega a aba do caderno se
+      // estiver aberta. Devolve `{path}`. A pasta é criada se faltar.
+      case 'note-add':
+        {
+          final dir = (c.args['notebook'] ?? '').toString();
+          if (dir.isEmpty || !isNotebookFolder(dir)) {
+            return const CockpitCommandResult.fail(
+              'notebook must be a folder ending in .notebook',
+            );
+          }
+          final title = (c.args['title'] ?? '').toString().trim();
+          if (title.isEmpty) {
+            return const CockpitCommandResult.fail('missing --title');
+          }
+          final rawTags = c.args['tags'];
+          final tags = <String>{
+            if (rawTags is List) ...rawTags.map((e) => e.toString()),
+            kAgentTag,
+          }.toList();
+          final body = (c.args['body'] ?? '').toString();
+          if (!_isRemoteTab(c.tabId)) {
+            try {
+              await Directory(dir).create(recursive: true);
+            } on FileSystemException catch (e) {
+              return CockpitCommandResult.fail(
+                'cannot create "$dir": ${e.message}',
+              );
+            }
+          }
+          final now = DateTime.now();
+          var name = NotebookNote.fileNameFor(title, now);
+          final taken = (await _vm.listChildren(
+            dir,
+          )).map((e) => e.name).toSet();
+          var i = 2;
+          while (taken.contains(name)) {
+            name = NotebookNote.fileNameFor('$title $i', now);
+            i++;
+          }
+          final path = '$dir/$name';
+          final ok = await _vm.writeTextAt(
+            path,
+            NotebookNote.template(
+              title: title,
+              tags: tags,
+              now: now,
+              body: body,
+            ),
+          );
+          if (!ok) return CockpitCommandResult.fail('could not write "$path"');
+          _vm.notebookSessionFor(dir)?.requestReload();
+          return CockpitCommandResult.ok({'path': path});
+        }
+
+      // `cockpit note list <dir.notebook>` — notas com título e tags.
+      case 'note-list':
+        {
+          final dir = (c.args['notebook'] ?? '').toString();
+          if (dir.isEmpty || !isNotebookFolder(dir)) {
+            return const CockpitCommandResult.fail(
+              'notebook must be a folder ending in .notebook',
+            );
+          }
+          final out = <Map<String, dynamic>>[];
+          for (final e in await _vm.listChildren(dir)) {
+            if (e.isDirectory || !e.name.toLowerCase().endsWith('.md')) {
+              continue;
+            }
+            final raw = await _vm.readTextAt(e.path);
+            if (raw == null) continue;
+            final n = NotebookNote.parse(e.path, raw);
+            out.add({'path': n.path, 'title': n.title, 'tags': n.tags});
+          }
+          return CockpitCommandResult.ok(out);
+        }
+
       case 'orchestrate':
         final path = (c.args['path'] ?? '').toString();
         if (path.isEmpty) {
@@ -283,11 +489,19 @@ class CockpitCliHandler {
         if (sender != null && sender.projectId != _vm.selectedProjectId) {
           _vm.selectProject(sender.projectId);
         }
-        final applied = await _vm.applyLayoutFile(path);
+        final append = c.args['append'] == true;
+        // A aba emissora sobrevive ao replace: fechá-la mataria o `cockpit`
+        // que ainda espera esta resposta.
+        final applied = await _vm.applyLayoutFile(
+          path,
+          mode: append ? LayoutApplyMode.append : LayoutApplyMode.replace,
+          keepTabId: sender?.id,
+        );
         return switch (applied) {
           Success(:final value) => CockpitCommandResult.ok({
             'created': value.created,
             'skipped': value.skipped,
+            'closed': value.closed,
           }),
           Failure(:final error) => CockpitCommandResult.fail(error),
         };
@@ -312,6 +526,170 @@ class CockpitCliHandler {
             )
             .toList();
         return CockpitCommandResult.ok(ws);
+
+      // `cockpit new-workspace <path> [--host <host>] [--name <name>]`
+      // `cockpit new-remote-workspace --host <host> --path <path> [--name <name>]`
+      // Adiciona um workspace como projeto de primeiro nível no rail (local ou
+      // remoto). Idempotente: se já estiver aberto, seleciona e devolve os
+      // dados do workspace.
+      case 'new-remote-workspace':
+      case 'new-workspace':
+      case 'open-workspace':
+        final hostRef = (c.args['host'] ?? '').toString().trim();
+        final rawPath = (c.args['path'] ?? '').toString().trim();
+        if (rawPath.isEmpty) {
+          return const CockpitCommandResult.fail('missing path');
+        }
+        final rawName = (c.args['name'] ?? '').toString().trim();
+        final customName = rawName.isEmpty ? null : rawName;
+
+        if (hostRef.isNotEmpty) {
+          // Workspace REMOTO (plano 58 / dd-swarm):
+          // Resolve host existente (por id/sshTarget/nome) ou registra
+          // automaticamente com o sshTarget (ex: alias do ~/.ssh/config).
+          final host = await _resolveOrRegisterRemoteHost(hostRef);
+          final cleanPath = await _resolveRemotePath(host, rawPath);
+          await _vm.createRemoteWorkspace(host.id, cleanPath);
+          final workspaceId =
+              '${Project.remotePrefix}${RemoteWorkspacePin.idFor(host.id, cleanPath)}';
+          if (customName != null) {
+            await _vm.updateRemoteWorkspace(workspaceId, name: customName);
+          }
+          final sessions = _vm.allSessions
+              .where((s) => s.projectId == workspaceId)
+              .toList();
+          if (sessions.isEmpty || sessions.every((s) => s is EmptyTab)) {
+            _vm.newTerminalTab(cwd: cleanPath);
+          }
+          final project = _vm.projectById(workspaceId);
+          final tabCount = _vm.allSessions
+              .where((s) => s.projectId == workspaceId)
+              .length;
+          return CockpitCommandResult.ok({
+            'id': workspaceId,
+            'name': project?.name ?? (customName ?? cleanPath),
+            'path': project?.effectiveRoot ?? cleanPath,
+            'host': host.sshTarget,
+            'tabs': tabCount,
+          });
+        }
+
+        // Workspace LOCAL
+        final cleanPath = _cleanWorkspacePath(rawPath);
+        if (!_isRemoteTab(c.tabId) && !await Directory(cleanPath).exists()) {
+          return CockpitCommandResult.fail('directory not found: "$cleanPath"');
+        }
+
+        final project = await _vm.addProject(cleanPath, name: customName);
+        _vm.selectProject(project.id);
+
+        if (customName != null && customName != project.name) {
+          await _vm.updateProject(project.id, name: customName);
+        }
+
+        final sessions = _vm.allSessions
+            .where((s) => s.projectId == project.id)
+            .toList();
+        if (sessions.isEmpty || sessions.every((s) => s is EmptyTab)) {
+          _vm.newTerminalTab(cwd: project.effectiveRoot);
+        }
+
+        final resolved = _vm.projectById(project.id) ?? project;
+        final tabCount = _vm.allSessions
+            .where((s) => s.projectId == resolved.id)
+            .length;
+
+        return CockpitCommandResult.ok({
+          'id': resolved.id,
+          'name': resolved.name,
+          'path': resolved.effectiveRoot,
+          'tabs': tabCount,
+        });
+
+      // `cockpit close-workspace [<id|path>]` — fecha/remove o workspace do
+      // Cockpit (mantém os arquivos no disco). Suporta workspaces locais e remotos.
+      // O encerramento roda em `afterResponse` para permitir que o socket
+      // responda antes de derrubar o PTY/shell caso o comando venha de dentro
+      // do workspace fechado.
+      case 'close-workspace':
+        final target = (c.args['target'] ?? '').toString().trim();
+        final Project? project;
+        if (target.isNotEmpty) {
+          project = _resolveWorkspace(target);
+          if (project == null) {
+            return CockpitCommandResult.fail('no workspace matches "$target"');
+          }
+        } else {
+          final sender = c.tabId == null ? null : _vm.session(c.tabId!);
+          project = sender != null
+              ? _vm.projectById(sender.projectId)
+              : _vm.selectedProject;
+          if (project == null) {
+            return const CockpitCommandResult.fail(
+              'missing target workspace (pass <id|path> or run inside a Cockpit workspace)',
+            );
+          }
+        }
+        if (project.isSystemTerminal) {
+          return const CockpitCommandResult.fail(
+            'cannot close the system terminal workspace',
+          );
+        }
+        final isRemote = project.isRemoteTerminal;
+        final closingId = project.id;
+        final closingPath = project.effectiveRoot;
+        return CockpitCommandResult.ok(
+          {'id': closingId, 'path': closingPath, 'closed': true},
+          () {
+            if (isRemote) {
+              unawaited(_vm.removeRemoteWorkspace(closingId));
+            } else {
+              unawaited(_vm.removeProject(closingId));
+            }
+          },
+        );
+
+      // `cockpit rename-workspace [<id|path>] <new-name>` — renomeia o título
+      // de exibição do workspace no rail (local ou remoto).
+      case 'rename-workspace':
+        final target = (c.args['target'] ?? '').toString().trim();
+        final newName = (c.args['name'] ?? '').toString().trim();
+        if (newName.isEmpty) {
+          return const CockpitCommandResult.fail('missing new workspace name');
+        }
+        final Project? project;
+        if (target.isNotEmpty) {
+          project = _resolveWorkspace(target);
+          if (project == null) {
+            return CockpitCommandResult.fail('no workspace matches "$target"');
+          }
+        } else {
+          final sender = c.tabId == null ? null : _vm.session(c.tabId!);
+          project = sender != null
+              ? _vm.projectById(sender.projectId)
+              : _vm.selectedProject;
+          if (project == null) {
+            return const CockpitCommandResult.fail(
+              'missing target workspace (pass <id|path> or run inside a Cockpit workspace)',
+            );
+          }
+        }
+        if (project.isSystemTerminal) {
+          return const CockpitCommandResult.fail(
+            'cannot rename the system terminal workspace',
+          );
+        }
+        if (project.isRemoteTerminal) {
+          await _vm.updateRemoteWorkspace(project.id, name: newName);
+        } else {
+          await _vm.updateProject(project.id, name: newName);
+        }
+        final renamed = _vm.projectById(project.id) ?? project;
+        return CockpitCommandResult.ok({
+          'id': renamed.id,
+          'name': renamed.name,
+          'path': renamed.effectiveRoot,
+        });
 
       // `cockpit read-pane [<label|tab-id>]` — devolve uma janela de linhas do
       // buffer renderizado do pane (texto plano, sem ANSI — é o que o xterm já
@@ -359,22 +737,45 @@ class CockpitCliHandler {
         }
         return CockpitCommandResult.ok(window);
 
+      // `cockpit exec <command...>` (plano 67) — roda uma linha de shell na
+      // máquina do app e devolve stdout/stderr/exit code. O shell é o **perfil
+      // de terminal padrão** das configurações (o mesmo que o `+` abre: no
+      // Windows, PowerShell/cmd/WSL; no POSIX, o login shell com `-lc`). É o
+      // que os botões de um `.panel` usam por baixo; o env leva o roteamento
+      // da CLI (`COCKPIT_TAB_ID`, socket, PATH do `cockpit`), então o comando
+      // pode chamar `cockpit` de volta.
+      case 'exec':
+        final command = (c.args['command'] ?? '').toString();
+        if (command.trim().isEmpty) {
+          return const CockpitCommandResult.fail('missing command');
+        }
+        final cwd = (c.args['cwd'] ?? '').toString();
+        final timeoutRaw = c.args['timeout'];
+        final timeout = timeoutRaw is num ? timeoutRaw.toInt() : 60;
+        if (cwd.isNotEmpty && !await Directory(cwd).exists()) {
+          return CockpitCommandResult.fail('cwd not found: "$cwd"');
+        }
+        final result = await runShellCommand(
+          command,
+          cwd: cwd.isEmpty ? null : cwd,
+          environment: _vm.cliEnvironment(tabId: c.tabId),
+          timeout: Duration(seconds: timeout <= 0 ? 60 : timeout),
+          profile: _vm.defaultTerminalProfile,
+        );
+        return CockpitCommandResult.ok(result.toJson());
+
       // `cockpit list-tasks` — tasks do workspace do pane emissor (tabId,
       // default da CLI = a própria tab; fallback: workspace selecionado).
       // Mesmos binds do painel Tasks → mesma lista que a UI. `id` é o aceito
       // por `read-task`; `hasOutput` diz se o read vai responder.
       case 'list-tasks':
-        final sender = c.tabId == null ? null : _vm.session(c.tabId!);
-        final project = sender != null
-            ? _vm.projectById(sender.projectId)
-            : _vm.selectedProject;
-        final tasksRoot = project?.effectiveRoot ?? '';
-        if (project == null || project.isSystemTerminal || tasksRoot.isEmpty) {
+        final ctx = _taskContext(c);
+        if (ctx == null) {
           return const CockpitCommandResult.fail(
             'no workspace to list tasks for',
           );
         }
-        final defs = await _tasks.discover(tasksRoot);
+        final defs = await ctx.discovery.discover(ctx.root);
         final tasks = defs
             .map(
               (d) => <String, dynamic>{
@@ -382,12 +783,84 @@ class CockpitCliHandler {
                 'label': d.label,
                 'kind': d.kind.name,
                 'source': d.source.name,
-                'running': _taskRuns.runOf(d.id).isActive,
+                'running': ctx.runner.runOf(d.id).isActive,
                 'hasOutput': _taskTerms.existingTerminal(d.id) != null,
+                'profiles': [for (final p in d.profiles) p.name],
+                'keys': [for (final k in d.interactiveKeys) k.key],
               },
             )
             .toList();
         return CockpitCommandResult.ok(tasks);
+
+      // `cockpit run-task|stop-task|restart-task <task-id>` e
+      // `cockpit send-task-key <task-id> <key>` — o agente dirige o painel
+      // Tasks: o que a UI faz com botões, aqui por verbo. Mesmo runner da UI
+      // (local ou do host remoto), então o estado do painel acompanha.
+      case 'run-task':
+      case 'stop-task':
+      case 'restart-task':
+      case 'send-task-key':
+        final ctx = _taskContext(c);
+        if (ctx == null) {
+          return const CockpitCommandResult.fail('no workspace for tasks');
+        }
+        final taskId = (c.args['target'] ?? '').toString();
+        if (taskId.isEmpty) {
+          return const CockpitCommandResult.fail('missing task id');
+        }
+        final def = await _findTask(ctx, taskId);
+        if (def == null) {
+          return CockpitCommandResult.fail(
+            'unknown task "$taskId" (see `cockpit list-tasks`)',
+          );
+        }
+        final running = ctx.runner.runOf(def.id).isActive;
+        switch (c.cmd) {
+          case 'run-task':
+            final profile = (c.args['profile'] ?? '').toString();
+            if (profile.isNotEmpty &&
+                !def.profiles.any((p) => p.name == profile)) {
+              return CockpitCommandResult.fail(
+                'unknown profile "$profile" for "$taskId"',
+              );
+            }
+            if (running) {
+              if (c.args['restart'] != true) {
+                return CockpitCommandResult.fail(
+                  '"$taskId" is already running (use --restart)',
+                );
+              }
+              await ctx.runner.stop(def.id);
+            }
+            await ctx.runner.start(
+              def,
+              profileName: profile.isEmpty ? null : profile,
+            );
+          case 'stop-task':
+            if (!running) {
+              return CockpitCommandResult.fail('"$taskId" is not running');
+            }
+            await ctx.runner.stop(def.id);
+          case 'restart-task':
+            if (running) {
+              await ctx.runner.restart(def.id);
+            } else {
+              await ctx.runner.start(def);
+            }
+          case 'send-task-key':
+            final key = (c.args['key'] ?? '').toString();
+            if (key.isEmpty) {
+              return const CockpitCommandResult.fail('missing key');
+            }
+            if (!running) {
+              return CockpitCommandResult.fail('"$taskId" is not running');
+            }
+            ctx.runner.sendKey(def.id, key);
+        }
+        return CockpitCommandResult.ok({
+          'taskId': def.id,
+          'running': ctx.runner.runOf(def.id).isActive,
+        });
 
       // `cockpit read-task <task-id>` — mesma leitura, mas do terminal da task
       // no `TaskTerminalStore` (funciona mesmo sem aba `task_output` aberta).
@@ -991,13 +1464,130 @@ class CockpitCliHandler {
     );
   }
 
+  Future<String> _resolveRemotePath(RemoteHost host, String rawPath) async {
+    var p = rawPath.trim();
+    if (p == '~' || p.startsWith('~/')) {
+      try {
+        final (code, out, _) = await SshTunnel.capture(
+          host.sshTarget,
+          r'printf %s "$HOME"',
+          port: host.port,
+          identityFile: host.effectiveIdentityFile,
+        );
+        if (code == 0 && out.trim().isNotEmpty) {
+          final remoteHome = out.trim();
+          final normalizedHome = remoteHome.endsWith('/')
+              ? remoteHome.substring(0, remoteHome.length - 1)
+              : remoteHome;
+          p = p == '~' ? normalizedHome : '$normalizedHome/${p.substring(2)}';
+        }
+      } on Object catch (e) {
+        // Fallback: tenta via fileService se capture falhar
+        DiagnosticsLog.instance.warn('remote-home', 'capture failed', error: e);
+        try {
+          final service = await _vm.remoteHosts.fileServiceFor(host);
+          final remoteHome = await service.home();
+          if (remoteHome.isNotEmpty) {
+            final normalizedHome = remoteHome.endsWith('/')
+                ? remoteHome.substring(0, remoteHome.length - 1)
+                : remoteHome;
+            p = p == '~' ? normalizedHome : '$normalizedHome/${p.substring(2)}';
+          }
+        } on Object catch (e) {
+          DiagnosticsLog.instance.warn(
+            'remote-home',
+            'fileService fallback failed; keeping ~ unexpanded',
+            error: e,
+          );
+        }
+      }
+    }
+    while (p.length > 1 && (p.endsWith('/') || p.endsWith(r'\'))) {
+      p = p.substring(0, p.length - 1);
+    }
+    return p;
+  }
+
+  Future<RemoteHost> _resolveOrRegisterRemoteHost(String hostRef) async {
+    final clean = hostRef.trim();
+    for (final h in _vm.remoteHosts.hosts) {
+      if (h.id == clean ||
+          h.sshTarget == clean ||
+          h.name.toLowerCase() == clean.toLowerCase() ||
+          h.host == clean) {
+        return h;
+      }
+    }
+    await _vm.addRemoteHost(name: clean, sshTarget: clean);
+    for (final h in _vm.remoteHosts.hosts) {
+      if (h.sshTarget == clean || h.name == clean) {
+        return h;
+      }
+    }
+    return _vm.remoteHosts.hosts.last;
+  }
+
+  String _cleanWorkspacePath(String path) {
+    var p = normalizePath(path).trim();
+    if (p == '~' || p.startsWith('~/')) {
+      final home =
+          Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+      if (home != null && home.isNotEmpty) {
+        final normHome = normalizePath(home);
+        p = p == '~' ? normHome : '$normHome${p.substring(1)}';
+      }
+    }
+    while (p.length > 1 && p.endsWith('/')) {
+      p = p.substring(0, p.length - 1);
+    }
+    return p;
+  }
+
+  Project? _resolveWorkspace(String target) {
+    if (target.isEmpty) return null;
+    final normalized = normalizePath(target);
+    final clean = _cleanWorkspacePath(target);
+    for (final p in _vm.projects) {
+      if (p.id == target ||
+          p.id == '${Project.remotePrefix}$target' ||
+          p.id.replaceFirst(Project.remotePrefix, '') == target) {
+        return p;
+      }
+      if (p.path == target || p.path == normalized || p.path == clean) return p;
+      if (p.effectiveRoot == target ||
+          p.effectiveRoot == normalized ||
+          p.effectiveRoot == clean) {
+        return p;
+      }
+      if (p.remotePath == target || p.remotePath == clean) return p;
+    }
+    try {
+      final dir = Directory(clean);
+      if (dir.existsSync()) {
+        final abs = _cleanWorkspacePath(dir.absolute.path);
+        for (final p in _vm.projects) {
+          if (p.path == abs || p.effectiveRoot == abs) {
+            return p;
+          }
+        }
+      }
+    } catch (_) {
+      /* ignore invalid path syntax */
+    }
+    final byName = _vm.projects
+        .where((p) => p.name.toLowerCase() == target.toLowerCase())
+        .toList();
+    if (byName.length == 1) return byName.first;
+    return null;
+  }
+
   String _paneKind(PaneItem s) {
     if (s is TerminalSession) return 'terminal';
-    if (s is AgentSession) return 'agent';
     if (s is FileViewerSession) return 'file';
     if (s is TaskOutputSession) return 'task';
     if (s is RedisBrowserSession) return 'redis';
     if (s is MongoBrowserSession) return 'mongo';
+    if (s is NotebookSession) return 'notebook';
     return 'other';
   }
 

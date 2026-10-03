@@ -83,7 +83,11 @@ class DbQueryService {
   /// Confia numa host key de bastion **no host** do workspace remoto. Setado
   /// pela página junto do [remoteExecutorFor]; `null` = sem como persistir, e
   /// aí a falha de host key fica sendo só erro (o caminho da CLI).
-  Future<void> Function(String workspaceId, String endpoint, String fingerprint)?
+  Future<void> Function(
+    String workspaceId,
+    String endpoint,
+    String fingerprint,
+  )?
   remoteHostKeyTrustFor;
 
   /// Roda [run] e, se ele falhar por **host key desconhecida no bastion**,

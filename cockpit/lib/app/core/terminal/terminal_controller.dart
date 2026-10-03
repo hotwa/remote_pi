@@ -268,6 +268,9 @@ bool get terminalEngineIsSelectable => true;
 /// iOS. Com o pin casado (`cockpit-pin-flterm-ios-recover`: flterm 0.0.5 +
 /// libghostty 0.0.12 na mesma ref) o Ghostty voltou a rodar no iOS, então o
 /// gate saiu.
+///
+/// 2026-09-09: o gate foi reintroduzido por um dia pra comparar os motores no
+/// touch e removido de novo — o xterm no mobile ficou pior que o Ghostty.
 TerminalEngine resolveTerminalEngine(TerminalEngine engine) => engine;
 
 CockpitTerminalController createTerminalController(

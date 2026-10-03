@@ -10,9 +10,6 @@ import 'package:flutter/scheduler.dart';
 /// estado de shell (não de editor).
 class WorkspaceMenuBridge extends ChangeNotifier {
   bool _hasWorkspace = false;
-  bool _agentTabsInUse = false;
-  bool _agentsAllowed = true;
-  VoidCallback? _onNewAgent;
   VoidCallback? _onNewTerminal;
   VoidCallback? _onSplitRight;
   VoidCallback? _onSplitDown;
@@ -20,6 +17,8 @@ class WorkspaceMenuBridge extends ChangeNotifier {
   VoidCallback? _onToggleFiles;
   void Function(int index)? _onSelectTab;
   VoidCallback? _onSelectLastTab;
+  VoidCallback? _onNextWorkspace;
+  VoidCallback? _onPreviousWorkspace;
   VoidCallback? _onFocusPaneLeft;
   VoidCallback? _onFocusPaneRight;
   VoidCallback? _onFocusPaneUp;
@@ -27,16 +26,6 @@ class WorkspaceMenuBridge extends ChangeNotifier {
 
   bool get hasWorkspace => _hasWorkspace;
 
-  /// `true` se há ao menos uma aba de agente **em uso** (não placeholder vazio).
-  /// A tela de Configurações usa isso pra impedir desligar `enableAgent` sem
-  /// antes fechar as abas de agente (cross-route: a VM do shell é page-scoped).
-  bool get agentTabsInUse => _agentTabsInUse;
-
-  /// `false` no workspace de sistema "Cockpit" (terminal-only): o item
-  /// "New Agent" fica indisponível mesmo com `enableAgent` ligado.
-  bool get agentsAllowed => _agentsAllowed;
-
-  void newAgent() => _onNewAgent?.call();
   void newTerminal() => _onNewTerminal?.call();
   void splitRight() => _onSplitRight?.call();
   void splitDown() => _onSplitDown?.call();
@@ -44,19 +33,17 @@ class WorkspaceMenuBridge extends ChangeNotifier {
   void toggleFiles() => _onToggleFiles?.call();
   void selectTab(int index) => _onSelectTab?.call(index);
   void selectLastTab() => _onSelectLastTab?.call();
+  void nextWorkspace() => _onNextWorkspace?.call();
+  void previousWorkspace() => _onPreviousWorkspace?.call();
   void focusPaneLeft() => _onFocusPaneLeft?.call();
   void focusPaneRight() => _onFocusPaneRight?.call();
   void focusPaneUp() => _onFocusPaneUp?.call();
   void focusPaneDown() => _onFocusPaneDown?.call();
 
   /// O `CockpitPage` publica o estado atual. Callbacks são sempre atualizados;
-  /// só notifica (→ menu/settings reconstroem) quando [hasWorkspace] ou
-  /// [agentTabsInUse] mudam.
+  /// só notifica (→ menu/settings reconstroem) quando [hasWorkspace] muda.
   void setWorkspace({
     required bool hasWorkspace,
-    bool agentTabsInUse = false,
-    bool agentsAllowed = true,
-    VoidCallback? onNewAgent,
     VoidCallback? onNewTerminal,
     VoidCallback? onSplitRight,
     VoidCallback? onSplitDown,
@@ -64,12 +51,13 @@ class WorkspaceMenuBridge extends ChangeNotifier {
     VoidCallback? onToggleFiles,
     void Function(int index)? onSelectTab,
     VoidCallback? onSelectLastTab,
+    VoidCallback? onNextWorkspace,
+    VoidCallback? onPreviousWorkspace,
     VoidCallback? onFocusPaneLeft,
     VoidCallback? onFocusPaneRight,
     VoidCallback? onFocusPaneUp,
     VoidCallback? onFocusPaneDown,
   }) {
-    _onNewAgent = onNewAgent;
     _onNewTerminal = onNewTerminal;
     _onSplitRight = onSplitRight;
     _onSplitDown = onSplitDown;
@@ -77,18 +65,14 @@ class WorkspaceMenuBridge extends ChangeNotifier {
     _onToggleFiles = onToggleFiles;
     _onSelectTab = onSelectTab;
     _onSelectLastTab = onSelectLastTab;
+    _onNextWorkspace = onNextWorkspace;
+    _onPreviousWorkspace = onPreviousWorkspace;
     _onFocusPaneLeft = onFocusPaneLeft;
     _onFocusPaneRight = onFocusPaneRight;
     _onFocusPaneUp = onFocusPaneUp;
     _onFocusPaneDown = onFocusPaneDown;
-    if (hasWorkspace == _hasWorkspace &&
-        agentTabsInUse == _agentTabsInUse &&
-        agentsAllowed == _agentsAllowed) {
-      return;
-    }
+    if (hasWorkspace == _hasWorkspace) return;
     _hasWorkspace = hasWorkspace;
-    _agentTabsInUse = agentTabsInUse;
-    _agentsAllowed = agentsAllowed;
     // CockpitPage clears this bridge from dispose(), which runs while Flutter
     // finalizes the route subtree. Notifying synchronously there asks AppRoot
     // (an ancestor) to rebuild while the element tree is locked and produces

@@ -142,8 +142,7 @@ class Project {
   /// `list-tasks` e `read-task` recusarem a própria aba com "this pane has no
   /// workspace folder". Vazio aqui significa mesmo "não tem pasta" (terminal
   /// de sistema), e só isso.
-  String get effectiveRoot =>
-      isRemoteTerminal ? (remotePath ?? '') : path;
+  String get effectiveRoot => isRemoteTerminal ? (remotePath ?? '') : path;
 
   String get initial => name.isNotEmpty ? name[0].toUpperCase() : '?';
 

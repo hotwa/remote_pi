@@ -216,23 +216,27 @@ void main() {
 
     await store.trust('deploy@bastion:22', 'SHA256:abc');
     expect(
-      FileSshHostKeyStore(path: '${dir2.path}/known.json')
-          .trusted('deploy@bastion:22'),
+      FileSshHostKeyStore(
+        path: '${dir2.path}/known.json',
+      ).trusted('deploy@bastion:22'),
       'SHA256:abc',
     );
   });
 
-  test('não existe db.secretGet — o segredo não volta pelo protocolo', () async {
-    secrets.write('/srv/proj', 'dev-local', 's3cr3t');
-    final client = await boot();
+  test(
+    'não existe db.secretGet — o segredo não volta pelo protocolo',
+    () async {
+      secrets.write('/srv/proj', 'dev-local', 's3cr3t');
+      final client = await boot();
 
-    final reply = await _call(client, 'db.secretGet', {
-      'root': '/srv/proj',
-      'conn': 'dev-local',
-    });
+      final reply = await _call(client, 'db.secretGet', {
+        'root': '/srv/proj',
+        'conn': 'dev-local',
+      });
 
-    expect(reply.ok, isFalse, reason: 'ler segredo não pode ser um método');
-  });
+      expect(reply.ok, isFalse, reason: 'ler segredo não pode ser um método');
+    },
+  );
 }
 
 Future<RpcResponse> _call(
