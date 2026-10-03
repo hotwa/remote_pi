@@ -289,7 +289,22 @@ class _TabStripState extends State<_TabStrip> {
       confirmLabel: tr.close,
       danger: true,
     );
-    if (ok) widget.vm.closePane(widget.pane.id);
+    if (!ok || !context.mounted) return;
+    final remove = <String>[];
+    for (final tabId in widget.pane.tabs) {
+      final box = widget.vm.graphBoxForTab(tabId);
+      if (box == null) continue;
+      final choice = await showCloseGraphBoxDialog(
+        context,
+        boxTitle: box.title,
+      );
+      if (!context.mounted || choice == CloseGraphBoxChoice.cancel) return;
+      if (choice == CloseGraphBoxChoice.remove) remove.add(box.id);
+    }
+    for (final id in remove) {
+      widget.vm.removeGraphBox(id);
+    }
+    widget.vm.closePane(widget.pane.id);
   }
 
   /// Dropdown com todas as abas (pular direto pra uma) — aparece no overflow.

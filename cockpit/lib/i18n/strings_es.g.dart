@@ -45,6 +45,8 @@ class TranslationsEs extends Translations with BaseTranslations<AppLocale, Trans
 	@override late final _Translations$settings$es settings = _Translations$settings$es._(_root);
 	@override late final _Translations$automation$es automation = _Translations$automation$es._(_root);
 	@override late final _Translations$fileOperation$es fileOperation = _Translations$fileOperation$es._(_root);
+	@override late final _Translations$graphSubagent$es graphSubagent = _Translations$graphSubagent$es._(_root);
+	@override late final _Translations$graphView$es graphView = _Translations$graphView$es._(_root);
 	@override late final _Translations$theme$es theme = _Translations$theme$es._(_root);
 }
 
@@ -172,6 +174,67 @@ class _Translations$fileOperation$es extends Translations$fileOperation$en {
 
 	// Translations
 	@override late final _Translations$fileOperation$error$es error = _Translations$fileOperation$error$es._(_root);
+}
+
+// Path: graphSubagent
+class _Translations$graphSubagent$es extends Translations$graphSubagent$en {
+	_Translations$graphSubagent$es._(TranslationsEs root) : this._root = root, super.internal(root);
+
+	final TranslationsEs _root; // ignore: unused_field
+
+	// Translations
+	@override String get badge => 'SUBAGENTE TEMPORAL';
+	@override String get nameFallback => 'Subagente';
+	@override String get active => '● en ejecución';
+	@override String get disconnected => '◌ host desconectado';
+	@override String tooltip({required Object type, required Object id, required Object harness, required Object tab, required Object time}) => 'Subagente temporal: ${type}\nID: ${id}\nHerramienta: ${harness}\nControlado por la pestaña ${tab}\nIniciado: ${time}\nTokens/contexto: no disponibles en este hook\nFuente: hook SubagentStart';
+}
+
+// Path: graphView
+class _Translations$graphView$es extends Translations$graphView$en {
+	_Translations$graphView$es._(TranslationsEs root) : this._root = root, super.internal(root);
+
+	final TranslationsEs _root; // ignore: unused_field
+
+	// Translations
+	@override String get legend => 'LEYENDA';
+	@override String get working => 'Trabajando';
+	@override String get waiting => 'Esperando';
+	@override String get idle => 'Inactivo';
+	@override String get starting => 'Iniciando';
+	@override String get ended => 'Finalizado';
+	@override String get disconnected => 'Host desconectado';
+	@override String get unknown => 'Desconocido';
+	@override String get planned => 'Vínculo planificado';
+	@override String get observed => 'Intercambio observado';
+	@override String get temporary => 'Subagente temporal';
+	@override String get unresolvedPeer => 'Destinatario Claude';
+	@override String get unresolvedPeerHint => 'Pestaña aún no identificada';
+	@override String unresolvedPeerTooltip({required Object address}) => 'Mensaje observado para ${address}. Cockpit aún no identificó una pestaña correspondiente; no se supuso ninguna conexión entre terminales.';
+	@override String get noRole => 'Función sin definir';
+	@override String get terminal => 'Terminal';
+	@override String get defaultModel => 'Modelo predeterminado';
+	@override String context({required Object percent}) => 'Contexto ${percent}%';
+	@override String get contextUnavailable => 'Contexto no disponible';
+	@override String get compactHint => 'Se sugiere compactar';
+	@override String get handoffHint => 'Prepara un handoff';
+	@override String get connections => 'Conexiones';
+	@override String get noConnections => 'Sin conexiones planificadas';
+	@override String get openTerminal => 'Abrir terminal';
+	@override String get controlledBy => 'Controlado por el terminal principal';
+	@override String tokens({required Object count}) => 'Tokens: ${count}';
+	@override String get metrics => 'MÉTRICAS';
+	@override String source({required Object value}) => 'Fuente: ${value}';
+	@override String updated({required Object value}) => 'Actualizado: ${value}';
+	@override String get tooltipSession => 'SESIÓN';
+	@override String get tooltipContext => 'CONTEXTO Y TOKENS';
+	@override String get tooltipMachine => 'MÁQUINA';
+	@override String tooltipIdentity({required Object tool, required Object model, required Object status}) => '${tool} · ${model} · ${status}';
+	@override String tooltipUsage({required Object used, required Object window}) => '${used} / ${window} tokens de contexto';
+	@override String tooltipCpu({required Object value}) => 'CPU ${value}%';
+	@override String tooltipRam({required Object value}) => 'RAM ${value} MiB';
+	@override String tooltipSourceUpdated({required Object source, required Object time}) => '${source} · ${time}';
+	@override String tooltipReason({required Object reason}) => 'No disponible: ${reason}';
 }
 
 // Path: theme
@@ -2695,6 +2758,49 @@ extension on TranslationsEs {
 			'fileOperation.error.osFailure' => ({required Object detail}) => '${detail}',
 			'fileOperation.error.nameHasSlash' => 'El nombre no puede contener “/”.',
 			'fileOperation.error.invalidName' => 'Nombre inválido.',
+			'graphSubagent.badge' => 'SUBAGENTE TEMPORAL',
+			'graphSubagent.nameFallback' => 'Subagente',
+			'graphSubagent.active' => '● en ejecución',
+			'graphSubagent.disconnected' => '◌ host desconectado',
+			'graphSubagent.tooltip' => ({required Object type, required Object id, required Object harness, required Object tab, required Object time}) => 'Subagente temporal: ${type}\nID: ${id}\nHerramienta: ${harness}\nControlado por la pestaña ${tab}\nIniciado: ${time}\nTokens/contexto: no disponibles en este hook\nFuente: hook SubagentStart',
+			'graphView.legend' => 'LEYENDA',
+			'graphView.working' => 'Trabajando',
+			'graphView.waiting' => 'Esperando',
+			'graphView.idle' => 'Inactivo',
+			'graphView.starting' => 'Iniciando',
+			'graphView.ended' => 'Finalizado',
+			'graphView.disconnected' => 'Host desconectado',
+			'graphView.unknown' => 'Desconocido',
+			'graphView.planned' => 'Vínculo planificado',
+			'graphView.observed' => 'Intercambio observado',
+			'graphView.temporary' => 'Subagente temporal',
+			'graphView.unresolvedPeer' => 'Destinatario Claude',
+			'graphView.unresolvedPeerHint' => 'Pestaña aún no identificada',
+			'graphView.unresolvedPeerTooltip' => ({required Object address}) => 'Mensaje observado para ${address}. Cockpit aún no identificó una pestaña correspondiente; no se supuso ninguna conexión entre terminales.',
+			'graphView.noRole' => 'Función sin definir',
+			'graphView.terminal' => 'Terminal',
+			'graphView.defaultModel' => 'Modelo predeterminado',
+			'graphView.context' => ({required Object percent}) => 'Contexto ${percent}%',
+			'graphView.contextUnavailable' => 'Contexto no disponible',
+			'graphView.compactHint' => 'Se sugiere compactar',
+			'graphView.handoffHint' => 'Prepara un handoff',
+			'graphView.connections' => 'Conexiones',
+			'graphView.noConnections' => 'Sin conexiones planificadas',
+			'graphView.openTerminal' => 'Abrir terminal',
+			'graphView.controlledBy' => 'Controlado por el terminal principal',
+			'graphView.tokens' => ({required Object count}) => 'Tokens: ${count}',
+			'graphView.metrics' => 'MÉTRICAS',
+			'graphView.source' => ({required Object value}) => 'Fuente: ${value}',
+			'graphView.updated' => ({required Object value}) => 'Actualizado: ${value}',
+			'graphView.tooltipSession' => 'SESIÓN',
+			'graphView.tooltipContext' => 'CONTEXTO Y TOKENS',
+			'graphView.tooltipMachine' => 'MÁQUINA',
+			'graphView.tooltipIdentity' => ({required Object tool, required Object model, required Object status}) => '${tool} · ${model} · ${status}',
+			'graphView.tooltipUsage' => ({required Object used, required Object window}) => '${used} / ${window} tokens de contexto',
+			'graphView.tooltipCpu' => ({required Object value}) => 'CPU ${value}%',
+			'graphView.tooltipRam' => ({required Object value}) => 'RAM ${value} MiB',
+			'graphView.tooltipSourceUpdated' => ({required Object source, required Object time}) => '${source} · ${time}',
+			'graphView.tooltipReason' => ({required Object reason}) => 'No disponible: ${reason}',
 			'theme.error.io' => 'No se pudo leer o escribir el archivo del tema.',
 			'theme.error.ioDetail' => ({required Object detail}) => 'No se pudo leer o escribir el archivo del tema: ${detail}',
 			'theme.error.malformedJson' => ({required Object detail}) => 'Este archivo no es JSON válido: ${detail}',

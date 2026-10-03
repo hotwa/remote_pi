@@ -163,6 +163,8 @@ class AgentSession extends PaneItem {
   PiModel? get model => _model;
   ThinkingLevel get thinking => _thinking;
   ContextUsage? get contextUsage => _ctx;
+  DateTime? get contextUsageUpdatedAt => _contextUsageUpdatedAt;
+  DateTime? _contextUsageUpdatedAt;
 
   // ---- lifecycle ------------------------------------------------------------
 
@@ -251,11 +253,11 @@ class AgentSession extends PaneItem {
 
   /// `/new` — começa uma sessão nova: zera a conversa. O `sessionPath` é
   /// resetado pra a VM recapturar o novo arquivo de sessão no próximo turno.
-  Future<void> startNewSession() async {
+  Future<bool> startNewSession() async {
     final gateway = _gateway;
-    if (gateway == null || isBusy) return;
+    if (gateway == null || isBusy) return false;
     final result = await gateway.newSession();
-    result.fold(
+    return result.fold(
       (_) {
         _entries.clear();
         _resetOpenBuffers();
@@ -266,10 +268,12 @@ class AgentSession extends PaneItem {
         // sessionPath mudou → pede à VM para salvar o layout agora (sem esperar
         // o próximo fim de turno, que pode nunca vir antes do app fechar).
         onPreferenceChanged?.call();
+        return true;
       },
       (error) {
         _addInfo('failed to create session: ${error.message}', isError: true);
         notifyListeners();
+        return false;
       },
     );
   }
@@ -490,7 +494,10 @@ class AgentSession extends PaneItem {
     if (gateway == null || !isAlive) return;
     final result = await gateway.sessionStats();
     result.fold((usage) {
-      if (usage != null) _ctx = usage;
+      if (usage != null) {
+        _ctx = usage;
+        _contextUsageUpdatedAt = DateTime.now();
+      }
     }, (_) {});
     notifyListeners();
   }

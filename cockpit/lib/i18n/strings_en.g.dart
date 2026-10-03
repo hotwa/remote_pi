@@ -46,6 +46,8 @@ class Translations with BaseTranslations<AppLocale, Translations> {
 	late final Translations$settings$en settings = Translations$settings$en.internal(_root);
 	late final Translations$automation$en automation = Translations$automation$en.internal(_root);
 	late final Translations$fileOperation$en fileOperation = Translations$fileOperation$en.internal(_root);
+	late final Translations$graphSubagent$en graphSubagent = Translations$graphSubagent$en.internal(_root);
+	late final Translations$graphView$en graphView = Translations$graphView$en.internal(_root);
 	late final Translations$theme$en theme = Translations$theme$en.internal(_root);
 }
 
@@ -219,6 +221,153 @@ class Translations$fileOperation$en {
 
 	// Translations
 	late final Translations$fileOperation$error$en error = Translations$fileOperation$error$en.internal(_root);
+}
+
+// Path: graphSubagent
+class Translations$graphSubagent$en {
+	Translations$graphSubagent$en.internal(this._root);
+
+	final Translations _root; // ignore: unused_field
+
+	// Translations
+
+	/// en: 'TEMPORARY SUBAGENT'
+	String get badge => 'TEMPORARY SUBAGENT';
+
+	/// en: 'Subagent'
+	String get nameFallback => 'Subagent';
+
+	/// en: '● running'
+	String get active => '● running';
+
+	/// en: '◌ host disconnected'
+	String get disconnected => '◌ host disconnected';
+
+	/// en: 'Temporary subagent: ${type} ID: ${id} Tool: ${harness} Controlled by tab ${tab} Started: ${time} Tokens/context: unavailable from this hook Source: SubagentStart hook'
+	String tooltip({required Object type, required Object id, required Object harness, required Object tab, required Object time}) => 'Temporary subagent: ${type}\nID: ${id}\nTool: ${harness}\nControlled by tab ${tab}\nStarted: ${time}\nTokens/context: unavailable from this hook\nSource: SubagentStart hook';
+}
+
+// Path: graphView
+class Translations$graphView$en {
+	Translations$graphView$en.internal(this._root);
+
+	final Translations _root; // ignore: unused_field
+
+	// Translations
+
+	/// en: 'LEGEND'
+	String get legend => 'LEGEND';
+
+	/// en: 'Working'
+	String get working => 'Working';
+
+	/// en: 'Waiting'
+	String get waiting => 'Waiting';
+
+	/// en: 'Idle'
+	String get idle => 'Idle';
+
+	/// en: 'Starting'
+	String get starting => 'Starting';
+
+	/// en: 'Ended'
+	String get ended => 'Ended';
+
+	/// en: 'Host disconnected'
+	String get disconnected => 'Host disconnected';
+
+	/// en: 'Unknown'
+	String get unknown => 'Unknown';
+
+	/// en: 'Planned link'
+	String get planned => 'Planned link';
+
+	/// en: 'Observed exchange'
+	String get observed => 'Observed exchange';
+
+	/// en: 'Temporary subagent'
+	String get temporary => 'Temporary subagent';
+
+	/// en: 'Claude recipient'
+	String get unresolvedPeer => 'Claude recipient';
+
+	/// en: 'Tab not identified yet'
+	String get unresolvedPeerHint => 'Tab not identified yet';
+
+	/// en: 'Message observed for ${address}. Cockpit has not identified a matching tab, so no terminal connection was assumed.'
+	String unresolvedPeerTooltip({required Object address}) => 'Message observed for ${address}. Cockpit has not identified a matching tab, so no terminal connection was assumed.';
+
+	/// en: 'No role defined'
+	String get noRole => 'No role defined';
+
+	/// en: 'Terminal'
+	String get terminal => 'Terminal';
+
+	/// en: 'Default model'
+	String get defaultModel => 'Default model';
+
+	/// en: 'Context ${percent}%'
+	String context({required Object percent}) => 'Context ${percent}%';
+
+	/// en: 'Context unavailable'
+	String get contextUnavailable => 'Context unavailable';
+
+	/// en: 'Compaction suggested'
+	String get compactHint => 'Compaction suggested';
+
+	/// en: 'Prepare a handoff'
+	String get handoffHint => 'Prepare a handoff';
+
+	/// en: 'Connections'
+	String get connections => 'Connections';
+
+	/// en: 'No planned connections'
+	String get noConnections => 'No planned connections';
+
+	/// en: 'Open terminal'
+	String get openTerminal => 'Open terminal';
+
+	/// en: 'Controlled by the parent terminal'
+	String get controlledBy => 'Controlled by the parent terminal';
+
+	/// en: 'Tokens: ${count}'
+	String tokens({required Object count}) => 'Tokens: ${count}';
+
+	/// en: 'METRICS'
+	String get metrics => 'METRICS';
+
+	/// en: 'Source: ${value}'
+	String source({required Object value}) => 'Source: ${value}';
+
+	/// en: 'Updated: ${value}'
+	String updated({required Object value}) => 'Updated: ${value}';
+
+	/// en: 'SESSION'
+	String get tooltipSession => 'SESSION';
+
+	/// en: 'CONTEXT AND TOKENS'
+	String get tooltipContext => 'CONTEXT AND TOKENS';
+
+	/// en: 'MACHINE'
+	String get tooltipMachine => 'MACHINE';
+
+	/// en: '${tool} · ${model} · ${status}'
+	String tooltipIdentity({required Object tool, required Object model, required Object status}) => '${tool} · ${model} · ${status}';
+
+	/// en: '${used} / ${window} context tokens'
+	String tooltipUsage({required Object used, required Object window}) => '${used} / ${window} context tokens';
+
+	/// en: 'CPU ${value}%'
+	String tooltipCpu({required Object value}) => 'CPU ${value}%';
+
+	/// en: 'RAM ${value} MiB'
+	String tooltipRam({required Object value}) => 'RAM ${value} MiB';
+
+	/// en: '${source} · ${time}'
+	String tooltipSourceUpdated({required Object source, required Object time}) => '${source} · ${time}';
+
+	/// en: 'Unavailable: ${reason}'
+	String tooltipReason({required Object reason}) => 'Unavailable: ${reason}';
 }
 
 // Path: theme
@@ -4604,6 +4753,49 @@ extension on Translations {
 			'fileOperation.error.osFailure' => ({required Object detail}) => '${detail}',
 			'fileOperation.error.nameHasSlash' => 'Name cannot contain “/”.',
 			'fileOperation.error.invalidName' => 'Invalid name.',
+			'graphSubagent.badge' => 'TEMPORARY SUBAGENT',
+			'graphSubagent.nameFallback' => 'Subagent',
+			'graphSubagent.active' => '● running',
+			'graphSubagent.disconnected' => '◌ host disconnected',
+			'graphSubagent.tooltip' => ({required Object type, required Object id, required Object harness, required Object tab, required Object time}) => 'Temporary subagent: ${type}\nID: ${id}\nTool: ${harness}\nControlled by tab ${tab}\nStarted: ${time}\nTokens/context: unavailable from this hook\nSource: SubagentStart hook',
+			'graphView.legend' => 'LEGEND',
+			'graphView.working' => 'Working',
+			'graphView.waiting' => 'Waiting',
+			'graphView.idle' => 'Idle',
+			'graphView.starting' => 'Starting',
+			'graphView.ended' => 'Ended',
+			'graphView.disconnected' => 'Host disconnected',
+			'graphView.unknown' => 'Unknown',
+			'graphView.planned' => 'Planned link',
+			'graphView.observed' => 'Observed exchange',
+			'graphView.temporary' => 'Temporary subagent',
+			'graphView.unresolvedPeer' => 'Claude recipient',
+			'graphView.unresolvedPeerHint' => 'Tab not identified yet',
+			'graphView.unresolvedPeerTooltip' => ({required Object address}) => 'Message observed for ${address}. Cockpit has not identified a matching tab, so no terminal connection was assumed.',
+			'graphView.noRole' => 'No role defined',
+			'graphView.terminal' => 'Terminal',
+			'graphView.defaultModel' => 'Default model',
+			'graphView.context' => ({required Object percent}) => 'Context ${percent}%',
+			'graphView.contextUnavailable' => 'Context unavailable',
+			'graphView.compactHint' => 'Compaction suggested',
+			'graphView.handoffHint' => 'Prepare a handoff',
+			'graphView.connections' => 'Connections',
+			'graphView.noConnections' => 'No planned connections',
+			'graphView.openTerminal' => 'Open terminal',
+			'graphView.controlledBy' => 'Controlled by the parent terminal',
+			'graphView.tokens' => ({required Object count}) => 'Tokens: ${count}',
+			'graphView.metrics' => 'METRICS',
+			'graphView.source' => ({required Object value}) => 'Source: ${value}',
+			'graphView.updated' => ({required Object value}) => 'Updated: ${value}',
+			'graphView.tooltipSession' => 'SESSION',
+			'graphView.tooltipContext' => 'CONTEXT AND TOKENS',
+			'graphView.tooltipMachine' => 'MACHINE',
+			'graphView.tooltipIdentity' => ({required Object tool, required Object model, required Object status}) => '${tool} · ${model} · ${status}',
+			'graphView.tooltipUsage' => ({required Object used, required Object window}) => '${used} / ${window} context tokens',
+			'graphView.tooltipCpu' => ({required Object value}) => 'CPU ${value}%',
+			'graphView.tooltipRam' => ({required Object value}) => 'RAM ${value} MiB',
+			'graphView.tooltipSourceUpdated' => ({required Object source, required Object time}) => '${source} · ${time}',
+			'graphView.tooltipReason' => ({required Object reason}) => 'Unavailable: ${reason}',
 			'theme.error.io' => 'Could not read or write the theme file.',
 			'theme.error.ioDetail' => ({required Object detail}) => 'Could not read or write the theme file: ${detail}',
 			'theme.error.malformedJson' => ({required Object detail}) => 'This file is not valid JSON: ${detail}',

@@ -17,6 +17,13 @@ Future<bool> requestCloseTab(
   PaneItem? item,
   VoidCallback onClose,
 ) async {
+  final vm = context.read<CockpitViewModel>();
+  final box = item == null ? null : vm.graphBoxForTab(item.id);
+  if (box != null) {
+    final choice = await showCloseGraphBoxDialog(context, boxTitle: box.title);
+    if (!context.mounted || choice == CloseGraphBoxChoice.cancel) return false;
+    if (choice == CloseGraphBoxChoice.remove) vm.removeGraphBox(box.id);
+  }
   if (item is! FileViewerSession || !item.dirty) {
     onClose();
     return true;
