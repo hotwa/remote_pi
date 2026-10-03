@@ -418,6 +418,9 @@ class CockpitViewModel extends ChangeNotifier {
       <String, Map<String, dynamic>?>{};
 
   final Map<String, List<GraphBox>> _graphBoxes = {};
+  final Map<String, ({String role, String harness})> _pendingGraphRoles = {};
+  final Map<String, VoidCallback> _graphRoleListeners = {};
+  final Map<String, Timer> _graphRoleTimers = {};
   final Map<String, List<GraphLink>> _graphLinks = {};
   final Map<String, List<GraphObservedLink>> _graphTraffic = {};
   final Map<String, Map<String, String>> _graphClaudeAliases = {};
@@ -629,9 +632,77 @@ class CockpitViewModel extends ChangeNotifier {
         );
         final modelArg = model.isEmpty ? '' : ' --model $model';
         _typeWhenReady(value, '$harness$modelArg');
+        _queueGraphRole(value, role, harness);
         _scheduleSave(project.id);
         notifyListeners();
         return Success(value);
+    }
+  }
+
+  // The graph stores the role, while the agent needs to receive it as a prompt.
+  // Wait for the configured harness to own the PTY and finish its current turn.
+  void _queueGraphRole(String tabId, String role, String harness) {
+    final session = _sessions[tabId];
+    if (session is! TerminalSession || role.trim().isEmpty) return;
+    _pendingGraphRoles[tabId] = (role: role.trim(), harness: harness);
+    _graphRoleTimers.remove(tabId)?.cancel();
+    if (!_graphRoleListeners.containsKey(tabId)) {
+      void onSessionChanged() => _scheduleGraphRole(tabId);
+      _graphRoleListeners[tabId] = onSessionChanged;
+      session.addListener(onSessionChanged);
+    }
+    _scheduleGraphRole(tabId);
+  }
+
+  void _scheduleGraphRole(String tabId) {
+    final session = _sessions[tabId];
+    final pending = _pendingGraphRoles[tabId];
+    if (session is! TerminalSession ||
+        pending == null ||
+        session.status != TerminalStatus.idle ||
+        !_graphHarnessMatches(session, pending.harness)) {
+      return;
+    }
+    _graphRoleTimers.putIfAbsent(
+      tabId,
+      () => Timer(const Duration(milliseconds: 900), () {
+        _graphRoleTimers.remove(tabId);
+        final current = _sessions[tabId];
+        final latest = _pendingGraphRoles[tabId];
+        if (current is! TerminalSession ||
+            latest == null ||
+            current.status != TerminalStatus.idle ||
+            !_graphHarnessMatches(current, latest.harness)) {
+          return;
+        }
+        current.terminal.paste(
+          'Cockpit: sua função neste box foi definida ou atualizada. '
+          'Substitua a função anterior deste box pelo texto JSON a seguir: '
+          '${jsonEncode(latest.role)}. '
+          'Use esta função nas próximas solicitações. '
+          'Não inicie nenhuma tarefa agora; aguarde uma demanda.',
+        );
+        current.insertText('\r');
+        _clearGraphRole(tabId);
+      }),
+    );
+  }
+
+  bool _graphHarnessMatches(TerminalSession session, String harness) =>
+      switch (harness) {
+        'claude' => session.activeHarness?.name == 'claudeCode',
+        'codex' => session.activeHarness?.name == 'codex',
+        'pi' => session.activeHarness?.name == 'pi',
+        _ => false,
+      };
+
+  void _clearGraphRole(String tabId) {
+    _pendingGraphRoles.remove(tabId);
+    _graphRoleTimers.remove(tabId)?.cancel();
+    final listener = _graphRoleListeners.remove(tabId);
+    final session = _sessions[tabId];
+    if (listener != null && session is TerminalSession) {
+      session.removeListener(listener);
     }
   }
 
@@ -655,6 +726,10 @@ class CockpitViewModel extends ChangeNotifier {
     final index = boxes.indexWhere((box) => box.id == boxId);
     if (index < 0) return;
     boxes[index] = boxes[index].copyWith(role: role.trim());
+    final tabId = boxes[index].tabId;
+    if (tabId != null && tabId.isNotEmpty) {
+      _queueGraphRole(tabId, role, boxes[index].harness);
+    }
     notifyListeners();
     _scheduleSave(projectId);
   }
@@ -682,6 +757,7 @@ class CockpitViewModel extends ChangeNotifier {
         boxes[index] = box.copyWith(tabId: value);
         final modelArg = box.model.isEmpty ? '' : ' --model ${box.model}';
         _typeWhenReady(value, '${box.harness}$modelArg');
+        _queueGraphRole(value, box.role, box.harness);
         notifyListeners();
         _scheduleSave(project.id);
         return Success(value);
@@ -708,6 +784,7 @@ class CockpitViewModel extends ChangeNotifier {
         boxes[index] = box.copyWith(tabId: value);
         final modelArg = box.model.isEmpty ? '' : ' --model ${box.model}';
         _typeWhenReady(value, '${box.harness}$modelArg');
+        _queueGraphRole(value, box.role, box.harness);
         notifyListeners();
         _scheduleSave(project.id);
         return Success(value);
@@ -761,6 +838,11 @@ class CockpitViewModel extends ChangeNotifier {
   void removeGraphBox(String boxId) {
     final projectId = _selectedProjectId;
     if (projectId == null) return;
+    for (final box in _graphBoxes[projectId] ?? const <GraphBox>[]) {
+      if (box.id == boxId && box.tabId != null) {
+        _clearGraphRole(box.tabId!);
+      }
+    }
     _graphBoxes[projectId]?.removeWhere((b) => b.id == boxId);
     _graphLinks[projectId]?.removeWhere(
       (l) => l.from == boxId || l.to == boxId,
@@ -5465,6 +5547,7 @@ class CockpitViewModel extends ChangeNotifier {
   }
 
   void _disposeSession(String id) {
+    _clearGraphRole(id);
     _graphSubagents.clearOwner(id);
     _fileWatchers.remove(id)?.cancel();
     _fileWatchDebounce.remove(id)?.cancel();
@@ -6280,6 +6363,9 @@ class CockpitViewModel extends ChangeNotifier {
       t.cancel();
     }
     _fileWatchDebounce.clear();
+    for (final tabId in _graphRoleListeners.keys.toList()) {
+      _clearGraphRole(tabId);
+    }
     // Grava o output pendente das tasks antes de sair (o debounce de 1s do
     // `TaskTerminalStore` pode não ter disparado) → o restore reabre a aba.
     unawaited(_taskTerminals.flushAll());
