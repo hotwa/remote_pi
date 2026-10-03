@@ -69,7 +69,7 @@ final UnmodifiableListView<UserScript> kPointerRelayScripts =
 final UnmodifiableListView<UserScript> kWebViewUserScripts =
     UnmodifiableListView<UserScript>([
       ...kNoRubberBandScripts,
-      ...kPointerRelayScripts,
+      if (Platform.isMacOS) ...kPointerRelayScripts,
     ]);
 
 /// Repasse de hover da webview pro Flutter.
