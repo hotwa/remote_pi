@@ -306,6 +306,108 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
     }
   }
 
+  Future<_GraphBoxEditDraft?> _editBox(
+    GraphBox box, {
+    required bool canStart,
+  }) async {
+    final role = TextEditingController(text: box.role);
+    final model = TextEditingController(text: box.model);
+    var harness = box.harness == 'claudeCode' ? 'claude' : box.harness;
+    if (!const {'claude', 'codex', 'pi'}.contains(harness)) harness = '';
+    _editingText = true;
+    try {
+      return await showDialog<_GraphBoxEditDraft>(
+        context: context,
+        barrierColor: context.colors.scrim,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Editar função e CLI'),
+            content: SizedBox(
+              width: 440,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Função'),
+                  TextField(controller: role, maxLines: 6),
+                  const SizedBox(height: 12),
+                  const Text('Ferramenta'),
+                  Row(
+                    children: [
+                      for (final option in const ['claude', 'codex', 'pi'])
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: OutlineButton(
+                            onPressed: () =>
+                                setDialogState(() => harness = option),
+                            child: Text(
+                              harness == option ? '● $option' : option,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Modelo (vazio = padrão da ferramenta)'),
+                  TextField(controller: model),
+                ],
+              ),
+            ),
+            actions: [
+              OutlineButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancelar'),
+              ),
+              OutlineButton(
+                onPressed: () {
+                  if (role.text.trim().isEmpty) return;
+                  Navigator.of(dialogContext).pop((
+                    role: role.text.trim(),
+                    harness: harness,
+                    model: model.text.trim(),
+                    start: false,
+                  ));
+                },
+                child: const Text('Salvar'),
+              ),
+              if (canStart && harness.isNotEmpty)
+                PrimaryButton(
+                  onPressed: () {
+                    if (role.text.trim().isEmpty) return;
+                    Navigator.of(dialogContext).pop((
+                      role: role.text.trim(),
+                      harness: harness,
+                      model: model.text.trim(),
+                      start: true,
+                    ));
+                  },
+                  child: const Text('Salvar e iniciar CLI'),
+                ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      _editingText = false;
+      if (mounted) _graphRevision.value++;
+      role.dispose();
+      model.dispose();
+    }
+  }
+
+  Future<void> _showGraphError(String message) => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Não foi possível configurar o box'),
+      content: Text(message),
+      actions: [
+        PrimaryButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
   Future<void> _compact(GraphBox box) async {
     final session = widget.vm.session(box.tabId ?? '');
     if (session is AgentSession) {
@@ -364,6 +466,9 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
         for (final box in boxes) {
           if (box.id == _selected) selectedBox = box;
         }
+        final selectedSession = selectedBox == null
+            ? null
+            : widget.vm.session(selectedBox.tabId ?? '');
         final positions = {for (final box in boxes) box.id: box.position};
         final temporaryLinks = <GraphLink>[];
         for (final child in children) {
@@ -647,8 +752,11 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
                   width: 290,
                   child: _GraphInspector(
                     box: selectedBox,
-                    inactive:
-                        widget.vm.session(selectedBox.tabId ?? '') == null,
+                    hasSession: selectedSession != null,
+                    agentRunning:
+                        selectedSession is AgentSession ||
+                        selectedSession is TerminalSession &&
+                            selectedSession.activeHarness != null,
                     links: widget.vm.graphLinks
                         .where(
                           (l) =>
@@ -659,22 +767,42 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
                     boxNames: {for (final box in boxes) box.id: box.title},
                     telemetry: _latestTelemetry[selectedBox.tabId],
                     onEditRole: () async {
-                      final role = await _editText(
-                        'Editar função',
-                        selectedBox!.role,
+                      final box = selectedBox!;
+                      final draft = await _editBox(
+                        box,
+                        canStart:
+                            selectedSession == null ||
+                            selectedSession is TerminalSession &&
+                                selectedSession.activeHarness == null,
                       );
-                      if (!mounted || role == null || role.isEmpty) return;
-                      final session = widget.vm.session(
-                        selectedBox!.tabId ?? '',
-                      );
+                      if (!mounted || draft == null) return;
+                      final session = widget.vm.session(box.tabId ?? '');
                       final id = session == null
-                          ? selectedBox.id
+                          ? box.id
                           : widget.vm.ensureGraphBoxForTab(
                               session,
-                              selectedBox.position,
+                              box.position,
                             );
-                      widget.vm.updateGraphBoxRole(id, role);
+                      final configured = widget.vm.configureGraphBox(
+                        boxId: id,
+                        role: draft.role,
+                        harness: draft.harness,
+                        model: draft.model,
+                      );
+                      if (!mounted) return;
+                      if (configured case Failure(:final error)) {
+                        await _showGraphError(error);
+                        return;
+                      }
                       setState(() => _selected = id);
+                      if (draft.start) {
+                        final started = widget.vm.relaunchGraphBox(id);
+                        if (started case Success(:final value)) {
+                          widget.onOpenTab(value);
+                        } else if (started case Failure(:final error)) {
+                          await _showGraphError(error);
+                        }
+                      }
                     },
                     onCopyRole: () async {
                       await Clipboard.setData(
@@ -689,12 +817,14 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
                     },
                     onCompact: () => _compact(selectedBox!),
                     onHandoff: () => _handoff(selectedBox!),
-                    onStart: () {
+                    onStart: () async {
                       final result = widget.vm.relaunchGraphBox(
                         selectedBox!.id,
                       );
                       if (result case Success(:final value)) {
                         widget.onOpenTab(value);
+                      } else if (result case Failure(:final error)) {
+                        await _showGraphError(error);
                       }
                     },
                     onRemoveLink: (link) =>
@@ -1202,7 +1332,8 @@ class _GraphSubagentCard extends StatelessWidget {
 class _GraphInspector extends StatelessWidget {
   const _GraphInspector({
     required this.box,
-    required this.inactive,
+    required this.hasSession,
+    required this.agentRunning,
     required this.links,
     required this.boxNames,
     required this.telemetry,
@@ -1216,7 +1347,8 @@ class _GraphInspector extends StatelessWidget {
   });
 
   final GraphBox box;
-  final bool inactive;
+  final bool hasSession;
+  final bool agentRunning;
   final List<GraphLink> links;
   final Map<String, String> boxNames;
   final GraphTelemetrySnapshot? telemetry;
@@ -1249,7 +1381,7 @@ class _GraphInspector extends StatelessWidget {
               style: context.typo.title.copyWith(color: colors.text),
             ),
             const SizedBox(height: 10),
-            if (!inactive)
+            if (hasSession)
               PrimaryButton(
                 onPressed: onOpen,
                 child: Text(context.t.graphView.openTerminal),
@@ -1264,7 +1396,7 @@ class _GraphInspector extends StatelessWidget {
             const SizedBox(height: 10),
             OutlineButton(
               onPressed: onEditRole,
-              child: const Text('Editar função'),
+              child: const Text('Editar função e CLI'),
             ),
             if (box.role.isNotEmpty) ...[
               const SizedBox(height: 6),
@@ -1313,10 +1445,14 @@ class _GraphInspector extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 10),
-            if (inactive)
+            if (!agentRunning)
               PrimaryButton(
-                onPressed: onStart,
-                child: const Text('Abrir nova sessão'),
+                onPressed: box.harness.isEmpty ? onEditRole : onStart,
+                child: Text(
+                  box.harness.isEmpty
+                      ? 'Configurar CLI'
+                      : 'Iniciar ${box.harness == 'claudeCode' ? 'claude' : box.harness}',
+                ),
               )
             else ...[
               OutlineButton(
@@ -1464,6 +1600,13 @@ class _GraphLinkPainter extends CustomPainter {
       oldDelegate.observed != observed ||
       oldDelegate.selected != selected;
 }
+
+typedef _GraphBoxEditDraft = ({
+  String role,
+  String harness,
+  String model,
+  bool start,
+});
 
 typedef _GraphBoxDraft = ({
   String title,

@@ -718,20 +718,54 @@ class CockpitViewModel extends ChangeNotifier {
     _scheduleSave(projectId);
   }
 
-  void updateGraphBoxRole(String boxId, String role) {
+  Result<String, String> configureGraphBox({
+    required String boxId,
+    required String role,
+    required String harness,
+    required String model,
+  }) {
     final projectId = _selectedProjectId;
-    if (projectId == null || role.trim().isEmpty) return;
+    if (projectId == null) return const Failure('No workspace selected');
     final boxes = _graphBoxes[projectId];
-    if (boxes == null) return;
-    final index = boxes.indexWhere((box) => box.id == boxId);
-    if (index < 0) return;
-    boxes[index] = boxes[index].copyWith(role: role.trim());
-    final tabId = boxes[index].tabId;
+    final index = boxes?.indexWhere((box) => box.id == boxId) ?? -1;
+    if (boxes == null || index < 0) return const Failure('Box not found');
+    final trimmedRole = role.trim();
+    final normalizedHarness = harness == 'claudeCode' ? 'claude' : harness;
+    final trimmedModel = model.trim();
+    if (trimmedRole.isEmpty) return const Failure('Function is required');
+    if (normalizedHarness.isNotEmpty &&
+        !const {'claude', 'codex', 'pi'}.contains(normalizedHarness)) {
+      return const Failure('Unsupported agent');
+    }
+    if (trimmedModel.isNotEmpty &&
+        !RegExp(r'^[a-zA-Z0-9._:/-]+$').hasMatch(trimmedModel)) {
+      return const Failure('Invalid model identifier');
+    }
+    final updated = boxes[index].copyWith(
+      role: trimmedRole,
+      harness: normalizedHarness,
+      model: trimmedModel,
+    );
+    boxes[index] = updated;
+    final tabId = updated.tabId;
     if (tabId != null && tabId.isNotEmpty) {
-      _queueGraphRole(tabId, role, boxes[index].harness);
+      _clearGraphRole(tabId);
+      _queueGraphRole(tabId, trimmedRole, normalizedHarness);
     }
     notifyListeners();
     _scheduleSave(projectId);
+    return Success(boxId);
+  }
+
+  String? _graphCliCommand(GraphBox box) {
+    final harness = box.harness == 'claudeCode' ? 'claude' : box.harness;
+    if (!const {'claude', 'codex', 'pi'}.contains(harness)) return null;
+    if (box.model.isNotEmpty &&
+        !RegExp(r'^[a-zA-Z0-9._:/-]+$').hasMatch(box.model)) {
+      return null;
+    }
+    final modelArg = box.model.isEmpty ? '' : ' --model ${box.model}';
+    return '$harness$modelArg';
   }
 
   Result<String, String> relaunchGraphBox(String boxId) {
@@ -741,10 +775,25 @@ class CockpitViewModel extends ChangeNotifier {
     final index = boxes?.indexWhere((box) => box.id == boxId) ?? -1;
     if (boxes == null || index < 0) return const Failure('Box not found');
     final box = boxes[index];
-    if (box.tabId != null &&
-        box.tabId!.isNotEmpty &&
-        _sessions.containsKey(box.tabId)) {
-      return Success(box.tabId!);
+    final command = _graphCliCommand(box);
+    if (command == null) {
+      return const Failure('Configure Claude, Codex or Pi before starting');
+    }
+    final tabId = box.tabId;
+    final existing = tabId == null ? null : _sessions[tabId];
+    if (existing is TerminalSession) {
+      if (_graphHarnessMatches(existing, box.harness)) {
+        return Success(existing.id);
+      }
+      if (existing.activeHarness != null) {
+        return const Failure('Another agent is already running in this tab');
+      }
+      _typeWhenReady(existing.id, command);
+      _queueGraphRole(existing.id, box.role, box.harness);
+      return Success(existing.id);
+    }
+    if (existing != null) {
+      return const Failure('This box is not backed by a terminal');
     }
     final created = newTerminalTab(
       cwd: project.effectiveRoot,
@@ -755,8 +804,7 @@ class CockpitViewModel extends ChangeNotifier {
         return Failure(error);
       case Success(:final value):
         boxes[index] = box.copyWith(tabId: value);
-        final modelArg = box.model.isEmpty ? '' : ' --model ${box.model}';
-        _typeWhenReady(value, '${box.harness}$modelArg');
+        _typeWhenReady(value, command);
         _queueGraphRole(value, box.role, box.harness);
         notifyListeners();
         _scheduleSave(project.id);
@@ -773,6 +821,10 @@ class CockpitViewModel extends ChangeNotifier {
     final index = boxes?.indexWhere((box) => box.id == boxId) ?? -1;
     if (boxes == null || index < 0) return const Failure('Box not found');
     final box = boxes[index];
+    final command = _graphCliCommand(box);
+    if (command == null) {
+      return const Failure('Configure Claude, Codex or Pi before starting');
+    }
     final created = newTerminalTab(
       cwd: project.effectiveRoot,
       title: box.title,
@@ -782,8 +834,7 @@ class CockpitViewModel extends ChangeNotifier {
         return Failure(error);
       case Success(:final value):
         boxes[index] = box.copyWith(tabId: value);
-        final modelArg = box.model.isEmpty ? '' : ' --model ${box.model}';
-        _typeWhenReady(value, '${box.harness}$modelArg');
+        _typeWhenReady(value, command);
         _queueGraphRole(value, box.role, box.harness);
         notifyListeners();
         _scheduleSave(project.id);
@@ -815,7 +866,11 @@ class CockpitViewModel extends ChangeNotifier {
       harness: session is AgentSession
           ? 'pi'
           : session is TerminalSession
-          ? session.activeHarness?.name ?? ''
+          ? switch (session.activeHarness?.name) {
+              'claudeCode' => 'claude',
+              final name? => name,
+              null => '',
+            }
           : '',
       model: '',
       position: position,

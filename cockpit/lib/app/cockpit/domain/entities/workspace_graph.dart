@@ -21,16 +21,21 @@ class GraphBox {
   final Offset position;
   final String? tabId;
 
-  GraphBox copyWith({Offset? position, String? tabId, String? role}) =>
-      GraphBox(
-        id: id,
-        title: title,
-        role: role ?? this.role,
-        harness: harness,
-        model: model,
-        position: position ?? this.position,
-        tabId: tabId ?? this.tabId,
-      );
+  GraphBox copyWith({
+    Offset? position,
+    String? tabId,
+    String? role,
+    String? harness,
+    String? model,
+  }) => GraphBox(
+    id: id,
+    title: title,
+    role: role ?? this.role,
+    harness: harness ?? this.harness,
+    model: model ?? this.model,
+    position: position ?? this.position,
+    tabId: tabId ?? this.tabId,
+  );
 
   Map<String, Object?> toJson() => {
     'id': id,
