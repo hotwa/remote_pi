@@ -30,12 +30,17 @@ Future<void> main() async {
     // forcar novo layout. Carregue previamente todos os pesos que o terminal
     // oferece para que medida e rasterizacao usem a mesma face desde o primeiro
     // frame.
-    await GoogleFonts.pendingFonts([
-      GoogleFonts.jetBrainsMono(fontWeight: FontWeight.w300),
-      GoogleFonts.jetBrainsMono(fontWeight: FontWeight.w400),
-      GoogleFonts.jetBrainsMono(fontWeight: FontWeight.w500),
-      GoogleFonts.jetBrainsMono(fontWeight: FontWeight.w600),
-    ]);
+    try {
+      await GoogleFonts.pendingFonts([
+        GoogleFonts.jetBrainsMono(fontWeight: FontWeight.w300),
+        GoogleFonts.jetBrainsMono(fontWeight: FontWeight.w400),
+        GoogleFonts.jetBrainsMono(fontWeight: FontWeight.w500),
+        GoogleFonts.jetBrainsMono(fontWeight: FontWeight.w600),
+      ]);
+    } catch (_) {
+      // Open the window with a fallback font when the font cache is empty and
+      // the network is unavailable.
+    }
 
     // Mobile (iPad/Android): todas as orientações liberadas (plano 60, Wave F).
     // Em telas estreitas (portrait de celular) o shell colapsa as panes laterais
