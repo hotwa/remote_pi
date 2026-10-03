@@ -40,6 +40,8 @@ class WorkspaceGraphView extends StatefulWidget {
 
 class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
   final TransformationController _transform = TransformationController();
+  final ValueNotifier<int> _graphRevision = ValueNotifier(0);
+  bool _editingText = false;
   final Map<String, Future<GraphTelemetrySnapshot>> _telemetry = {};
   final Map<String, Offset> _dragPositions = {};
   Map<String, Offset> _legacyPositions = {};
@@ -59,11 +61,12 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
   @override
   void initState() {
     super.initState();
+    widget.vm.addListener(_onVmChanged);
     _processMetricsService = GraphProcessMetricsService(
       hostProvider: widget.processMetrics,
     );
     _telemetryTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      if (!mounted) return;
+      if (!mounted || _editingText) return;
       setState(() {
         _telemetry.clear();
         _latestTelemetry.clear();
@@ -75,6 +78,11 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
   @override
   void didUpdateWidget(covariant WorkspaceGraphView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.vm != widget.vm) {
+      oldWidget.vm.removeListener(_onVmChanged);
+      widget.vm.addListener(_onVmChanged);
+      _graphRevision.value++;
+    }
     if (oldWidget.processMetrics != widget.processMetrics) {
       _processMetricsService = GraphProcessMetricsService(
         hostProvider: widget.processMetrics,
@@ -86,8 +94,14 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
   @override
   void dispose() {
     _telemetryTimer?.cancel();
+    widget.vm.removeListener(_onVmChanged);
+    _graphRevision.dispose();
     _transform.dispose();
     super.dispose();
+  }
+
+  void _onVmChanged() {
+    if (!_editingText) _graphRevision.value++;
   }
 
   List<GraphBox> _visibleBoxes(CockpitViewModel vm) {
@@ -261,6 +275,7 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
 
   Future<String?> _editText(String title, String initial) async {
     final controller = TextEditingController(text: initial);
+    _editingText = true;
     try {
       return await showDialog<String>(
         context: context,
@@ -285,6 +300,8 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
         ),
       );
     } finally {
+      _editingText = false;
+      if (mounted) _graphRevision.value++;
       controller.dispose();
     }
   }
@@ -332,7 +349,7 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
   Widget build(BuildContext context) {
     final colors = context.colors;
     return ListenableBuilder(
-      listenable: widget.vm,
+      listenable: _graphRevision,
       builder: (context, _) {
         final boxes = [
           for (final box in _visibleBoxes(widget.vm))
@@ -472,10 +489,8 @@ class _WorkspaceGraphViewState extends State<WorkspaceGraphView> {
                                                   )!,
                                                 );
                                         if (mounted) {
-                                          setState(
-                                            () => _latestTelemetry[box.tabId!] =
-                                                result,
-                                          );
+                                          _latestTelemetry[box.tabId!] = result;
+                                          if (!_editingText) setState(() {});
                                         }
                                         return result;
                                       },
