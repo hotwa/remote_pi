@@ -18,6 +18,10 @@ pair once through the normal Remote Pi QR flow. Official app data is not copied.
 The official APK update banner is disabled for this fork to avoid offering an
 APK with another package/signature.
 
+Android also offers an explicit **local pairing identity** on the sync gate.
+It keeps the original cloud store by default and uses secure local persistence
+only after confirmation. See [local identity](PIMIC_LOCAL_IDENTITY.md).
+
 ## Configure and use
 
 1. Open **Settings → PiMic · Voice & draft tools**.
@@ -70,14 +74,16 @@ starts when opening settings. Catalogs are transient and never persisted.
 
 Feature code is in `app/packages/pimic_addons/`. It imports no upstream app model
 or protocol. `app/lib/pimic_bridge/` contains the host adapter. Upstream edits are
-limited to a path dependency, lazy DI binding, settings entry and composer seam.
+limited to a path dependency, lazy DI binding, settings/composer entries,
+and the sync gate/router boot reload seam. Local identity is isolated in
+`app/lib/pimic_bridge/identity/`; the native upstream store stays unchanged.
 Separate packaging changes cover package ID/name, LAN HTTP and update banner.
 No Relay, Pi extension, wire format, ChatViewModel or existing SpeechService
 implementation is changed.
 
 To rebase: update upstream in `main`, rebase the feature branch, review the small
 host/packaging diff, run the app regression tests plus addon package tests and
-build. `pimic/export_patch.py` exports host, packaging and test portability patches and
+build. `pimic/export_patch.py` exports host, local-identity, packaging and test portability patches and
 checksums for review. A future Pipecat gateway should preserve these HTTP draft
 contracts; no Pipecat SDK/runtime is required in this APK.
 
@@ -116,9 +122,8 @@ be reported separately from fake-client tests and existing-WAV API tests.
 - Foreground recording reported actual **h2w (wiredHeadset)** input, PCM RMS,
   and automatic stop at exactly 60 seconds / 960,000 frames. The ambient clip
   had no supplied reference utterance and is not counted as an accuracy test.
-- The phone currently remains behind upstream's Sync required gate. Fresh Pi
-  QR pairing and live sending await those upstream prerequisites. The optional
-  voice tools are available independently on that screen.
+- At this earlier stage the phone was behind the upstream sync gate;
+  the local-identity continuation below resolves it without changing system settings.
 - Real prompt cleanup against mac5 was not validated: its LAN port was
   unavailable. The optimizer is off on the test phone; fake-service tests pass.
 
@@ -142,3 +147,22 @@ be reported separately from fake-client tests and existing-WAV API tests.
   ARM64 debug build pass. Native code was unchanged in this continuation.
 - Charging stay-awake is enabled for debugging. Without external power the
   existing 30-minute screen timeout remains. Original keyboard was restored.
+
+
+### Optional local identity continuation
+
+- Added 16 identity/gate tests. Final application suite: 562, addon: 73,
+  original identity: 17 (652 Dart total); analysis and ARM64 APK build passed.
+- Original Play APK uninstalled at user request while retaining its app data.
+  Final fork APK metadata is 1.2.0+9. Direct Gradle builds now refresh their
+  generated version properties from pubspec before building.
+- Phone explicitly enabled local mode without Google sync or screen-lock changes.
+  Successfully paired with installed remote-pi 0.7.0 in an isolated WSL Pi RPC
+  test session. Cold start retained pairing and showed the online room/chat.
+  Pi was launched through wsl.exe into Ubuntu-22.04; no LLM prompts were sent.
+- Chat addon imported the existing 2.316-second WAV, mac7 returned
+  **手機語音測試**, and explicit **Use draft** populated the composer.
+  No Send was pressed. This is not fresh speech or real optimizer quality QA.
+- The final version-stamped APK was reinstalled without clearing its local
+  identity, paired peer, or STT configuration. Temporary test process/code and
+  test WAV are cleaned up after acceptance; paired host registration remains.

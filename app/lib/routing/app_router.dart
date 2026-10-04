@@ -218,7 +218,16 @@ GoRouter buildRouter(
       // until the bridge reports sync available.
       GoRoute(
         path: '/sync-required',
-        builder: (ctx, st) => const SyncRequiredPage(),
+        builder: (ctx, st) => SyncRequiredPage(
+          reloadBoot: () => boot.load(
+            storage,
+            conn,
+            prefs,
+            ownerBridge,
+            meshSync,
+            installWatcherAfterBoot: installWatcher,
+          ),
+        ),
       ),
 
       // Plan/tablet — adaptive master-detail shell.

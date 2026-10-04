@@ -31,3 +31,8 @@ cmux workflow; this checkout uses the available Codex agents instead.
   addon package tests, analysis and APK build before claiming readiness.
 - Any workstation Pi launch must be via `wsl.exe -d Ubuntu-22.04`; never Windows
   Pi. No tests send prompts into an existing user Pi session without instruction.
+- Optional Android local identity belongs in `app/lib/pimic_bridge/identity/`.
+  Preserve native cloud storage by default; require explicit local activation.
+  No automatic cloud fallback, identity import/export, silent key rotation, or
+  swapping storage for a paired profile. Local corruption must fail closed.
+  User-authorized original APK uninstall may keep its app data with `-k`.

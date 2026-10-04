@@ -8,10 +8,13 @@ BASE = '577e70b79528cc6c7da463ecd14c42ff8b9d9ed9'
 GROUPS = {
     'host.patch': ['app/pubspec.yaml', 'app/pubspec.lock',
                    'app/lib/config/dependencies.dart',
+                   'app/lib/routing/app_router.dart',
                    'app/lib/ui/chat/chat_page.dart',
                    'app/lib/ui/chat/widgets/input_bar.dart',
                    'app/lib/ui/settings/settings_page.dart',
                    'app/lib/ui/sync_required/sync_required_page.dart'],
+    'local-identity.patch': ['app/lib/pimic_bridge/identity',
+                             'app/test/pimic_bridge/identity'],
     'test-portability.patch': ['app/test/data/voice/speech_service_test.dart'],
     'packaging.patch': ['.gitignore', 'app/android/app/build.gradle.kts',
                         'app/android/app/src/main/AndroidManifest.xml'],

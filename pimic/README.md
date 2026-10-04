@@ -116,3 +116,10 @@ ordinary behavior. These optional tasks verify the prepared bytes again and
 explicitly select `android-arm64`, avoiding additional architecture downloads.
 The existing Flutter `build` task remains unchanged. There are no edits to the
 upstream app's Gradle files or global Gradle repository configuration.
+
+
+Direct Gradle tasks refresh `flutter.versionName` and `flutter.versionCode` in
+the generated Android local.properties from app/pubspec.yaml. This prevents a
+new APK retaining the previous build number. `export_patch.py` now exports the
+optional local identity module/tests separately as `local-identity.patch`; the
+small host patch includes the router reload callback used after sync recheck.
