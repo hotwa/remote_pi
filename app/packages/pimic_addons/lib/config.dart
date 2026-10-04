@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import 'prompt_template.dart';
+
 class SttProfile {
   const SttProfile({
     this.enabled = false,
@@ -26,14 +28,16 @@ class OptimizerProfile {
     this.baseUrl = '',
     this.model = '',
     this.apiKey = '',
+    this.templateJson = '',
   });
   final bool enabled;
-  final String baseUrl, model, apiKey;
+  final String baseUrl, model, apiKey, templateJson;
   Map<String, Object> toJson() => {
     'enabled': enabled,
     'baseUrl': baseUrl,
     'model': model,
     'apiKey': apiKey,
+    'templateJson': templateJson,
   };
 }
 
@@ -69,6 +73,7 @@ class AddonConfig {
         baseUrl: o['baseUrl'] as String,
         model: o['model'] as String,
         apiKey: o['apiKey'] as String,
+        templateJson: o['templateJson'] as String? ?? '',
       ),
     );
     config.validate();
@@ -81,6 +86,9 @@ class AddonConfig {
     validateApiKey(stt.apiKey);
     validateApiKey(optimizer.apiKey);
     validateLanguage(stt.language);
+    if (optimizer.templateJson.isNotEmpty) {
+      PromptTemplate.parse(optimizer.templateJson);
+    }
   }
 }
 

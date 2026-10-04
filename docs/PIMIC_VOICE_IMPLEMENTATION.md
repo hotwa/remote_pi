@@ -48,6 +48,10 @@ only after confirmation. See [local identity](PIMIC_LOCAL_IDENTITY.md).
    then explicitly press **Suggest cleanup**, compare the original/suggestion,
    and **Use suggestion**. Selecting alone makes no API call. Unchecking cancels
    an in-flight cleanup and discards its suggestion without changing the draft.
+   Choose **仅纠错** (default) or **整理提示词**. Mode changes invalidate earlier
+   requests. Changed numbers, identifiers and restrictions are marked and require
+   explicit acknowledgement before applying. Optional single-template JSON import
+   is described in [optimization and template compatibility](PIMIC_OPTIMIZATION.md).
 7. **Use draft** returns text to the composer. Press the original Send button
    when ready. Neither transcription nor cleanup sends a Pi command.
 
@@ -169,3 +173,21 @@ be reported separately from fake-client tests and existing-WAV API tests.
 - The final version-stamped APK was reinstalled without clearing its local
   identity, paired peer, or STT configuration. Temporary test process/code and
   test WAV are cleaned up after acceptance; paired host registration remains.
+
+### Draft modes and template compatibility — version 11
+
+- Each draft still starts opted out. Default correction-only and optional prompt
+  rewriting share conservative fact/restriction rules. Mode changes cancel old
+  optimization; edits, config changes and opting out invalidate suggestions.
+- Changed numbers, code identifiers and restriction clauses are highlighted.
+  Applying a flagged suggestion requires acknowledgement; the original draft
+  remains directly usable. Detection is heuristic, not semantic validation.
+- Independent single-template JSON import/export supports a documented subset
+  of Prompt Optimizer user templates. No upstream AGPL runtime or template text
+  is bundled. Imported rules affect rewriting only; no extra service is required.
+- Application suite 562, addon suite 99 and original identity suite 17 all passed
+  (678 total). App analysis found no issues; ARM64 debug build passed through Pixi.
+- Wi-Fi ADB upgrade succeeded and installed versionCode 11 was verified. The
+  phone retained its local pairing identity and Relay settings. No real mac5
+  optimizer quality or new spoken accuracy test is claimed for this update.
+- Native capture, Pi extension, transport and upstream send code were unchanged.

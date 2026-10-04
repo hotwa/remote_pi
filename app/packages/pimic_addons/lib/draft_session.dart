@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'api_client.dart';
 import 'audio.dart';
 import 'config.dart';
+import 'draft_review.dart';
+import 'optimization.dart';
 
 enum DraftPhase {
   ready,
@@ -77,6 +79,9 @@ class DraftSession extends ChangeNotifier {
   String rawTranscript = '';
   String? suggestionSource;
   String? suggestedDraft;
+  OptimizationMode optimizationMode = OptimizationMode.correctionOnly;
+  DraftReview? review;
+  bool changesAcknowledged = false;
   String? error;
   String? notice;
   AudioLevel? level;
@@ -115,6 +120,7 @@ class DraftSession extends ChangeNotifier {
       !_disposed &&
       suggestedDraft != null &&
       _suggestionRevision == _editRevision &&
+      (!(review?.needsAcknowledgement ?? false) || changesAcknowledged) &&
       !isBusy;
 
   bool get targetIsCurrent => _currentTarget();
@@ -141,6 +147,8 @@ class DraftSession extends ChangeNotifier {
     suggestedDraft = null;
     suggestionSource = null;
     _suggestionRevision = null;
+    review = null;
+    changesAcknowledged = false;
     _notify();
   }
 
@@ -346,6 +354,25 @@ class DraftSession extends ChangeNotifier {
     suggestedDraft = null;
     suggestionSource = null;
     _suggestionRevision = null;
+    review = null;
+    changesAcknowledged = false;
+    _notify();
+  }
+
+  void selectOptimizationMode(OptimizationMode mode) {
+    if (_disposed ||
+        mode == optimizationMode ||
+        (isBusy && phase != DraftPhase.optimizing)) {
+      return;
+    }
+    cancelOptimization();
+    optimizationMode = mode;
+    _notify();
+  }
+
+  void acknowledgeChanges(bool value) {
+    if (_disposed || isBusy || suggestedDraft == null) return;
+    changesAcknowledged = value;
     _notify();
   }
 
@@ -367,11 +394,14 @@ class DraftSession extends ChangeNotifier {
     phase = DraftPhase.optimizing;
     suggestedDraft = null;
     suggestionSource = null;
+    review = null;
+    changesAcknowledged = false;
     _notify();
     try {
       final result = await _client.optimize(
         profile: _config.optimizer,
         text: source,
+        mode: optimizationMode,
         cancellation: cancellation,
       );
       if (!_active(generation) || cancellation.isCancelled) return;
@@ -381,6 +411,7 @@ class DraftSession extends ChangeNotifier {
       } else {
         suggestionSource = source;
         suggestedDraft = result;
+        review = DraftReview.compare(source, result);
         _suggestionRevision = revision;
       }
     } on Object catch (failure) {
@@ -425,6 +456,8 @@ class DraftSession extends ChangeNotifier {
     suggestedDraft = null;
     suggestionSource = null;
     _suggestionRevision = null;
+    review = null;
+    changesAcknowledged = false;
     phase = DraftPhase.ready;
     level = null;
     _notify();

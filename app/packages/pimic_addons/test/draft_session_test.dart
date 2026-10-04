@@ -6,6 +6,7 @@ import 'package:pimic_addons/api_client.dart';
 import 'package:pimic_addons/audio.dart';
 import 'package:pimic_addons/config.dart';
 import 'package:pimic_addons/draft_session.dart';
+import 'package:pimic_addons/optimization.dart';
 
 const enabledConfig = AddonConfig(
   stt: SttProfile(enabled: true),
@@ -87,6 +88,7 @@ class FakeClient extends AddonApiClient {
   AddonCancellation? lastCancellation;
   Completer<String>? sttCompletion, optimizeCompletion;
   Object? failure;
+  OptimizationMode? lastMode;
   @override
   Future<String> transcribe({
     required SttProfile profile,
@@ -103,9 +105,11 @@ class FakeClient extends AddonApiClient {
   Future<String> optimize({
     required OptimizerProfile profile,
     required String text,
+    OptimizationMode mode = OptimizationMode.correctionOnly,
     AddonCancellation? cancellation,
   }) async {
     optimizeCalls++;
+    lastMode = mode;
     lastCancellation = cancellation;
     if (failure != null) throw failure!;
     return optimizeCompletion == null

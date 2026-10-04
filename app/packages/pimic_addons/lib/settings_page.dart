@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'config.dart';
 import 'api_client.dart';
 import 'model_discovery.dart';
+import 'template_tools.dart';
 
 /// Opening this page is an explicit action; no app startup hook is required.
 class AddonSettingsPage extends StatefulWidget {
@@ -22,6 +23,7 @@ class _AddonSettingsPageState extends State<AddonSettingsPage> {
   final _optimizerUrl = TextEditingController();
   final _optimizerModel = TextEditingController();
   final _optimizerKey = TextEditingController();
+  final _optimizerTemplate = TextEditingController();
   bool _sttEnabled = false,
       _optimizerEnabled = false,
       _loading = true,
@@ -35,6 +37,7 @@ class _AddonSettingsPageState extends State<AddonSettingsPage> {
     _optimizerUrl,
     _optimizerModel,
     _optimizerKey,
+    _optimizerTemplate,
   ];
   @override
   void initState() {
@@ -52,6 +55,7 @@ class _AddonSettingsPageState extends State<AddonSettingsPage> {
     _optimizerUrl.text = config.optimizer.baseUrl;
     _optimizerModel.text = config.optimizer.model;
     _optimizerKey.text = config.optimizer.apiKey;
+    _optimizerTemplate.text = config.optimizer.templateJson;
     setState(() {
       _sttEnabled = config.stt.enabled;
       _optimizerEnabled = config.optimizer.enabled;
@@ -81,6 +85,7 @@ class _AddonSettingsPageState extends State<AddonSettingsPage> {
         baseUrl: _optimizerUrl.text.trim(),
         model: _optimizerModel.text.trim(),
         apiKey: _optimizerKey.text.trim(),
+        templateJson: _optimizerTemplate.text,
       ),
     );
     setState(() {
@@ -214,6 +219,10 @@ class _AddonSettingsPageState extends State<AddonSettingsPage> {
                     apiKey: _optimizerKey,
                     model: _optimizerModel,
                     api: _api,
+                    enabled: !_saving,
+                  ),
+                  TemplateTools(
+                    controller: _optimizerTemplate,
                     enabled: !_saving,
                   ),
                 ],

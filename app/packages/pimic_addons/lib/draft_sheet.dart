@@ -7,6 +7,8 @@ import 'api_client.dart';
 import 'audio.dart';
 import 'config.dart';
 import 'draft_session.dart';
+import 'draft_review_widgets.dart';
+import 'optimization.dart';
 
 /// Returns text only after the user presses Use draft. It never sends to Pi.
 Future<String?> showDraftSheet(
@@ -366,6 +368,33 @@ class _DraftSheetState extends State<DraftSheet> with WidgetsBindingObserver {
                               }
                             : null,
                       ),
+                      if (widget.config.optimizer.enabled &&
+                          _optimizeThisDraft) ...[
+                        SegmentedButton<OptimizationMode>(
+                          key: const Key('optimization-mode'),
+                          segments: [
+                            for (final mode in OptimizationMode.values)
+                              ButtonSegment(
+                                value: mode,
+                                label: Text(mode.label),
+                              ),
+                          ],
+                          selected: {_session.optimizationMode},
+                          onSelectionChanged:
+                              !_session.isBusy ||
+                                  _session.phase == DraftPhase.optimizing
+                              ? (value) => _session.selectOptimizationMode(
+                                  value.single,
+                                )
+                              : null,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(_session.optimizationMode.description),
+                        if (_session.optimizationMode ==
+                                OptimizationMode.rewritePrompt &&
+                            widget.config.optimizer.templateJson.isNotEmpty)
+                          const Text('已应用设置中导入的整理模板。'),
+                      ],
                       if (widget.config.optimizer.enabled)
                         Align(
                           alignment: Alignment.centerLeft,
@@ -381,10 +410,9 @@ class _DraftSheetState extends State<DraftSheet> with WidgetsBindingObserver {
                         ),
                       if (_session.rawTranscript.isNotEmpty) ...[
                         const SizedBox(height: 12),
-                        _comparison(
-                          context,
-                          'Raw transcript',
-                          _session.rawTranscript,
+                        DraftComparison(
+                          title: 'Raw transcript',
+                          text: _session.rawTranscript,
                         ),
                         Align(
                           alignment: Alignment.centerLeft,
@@ -404,17 +432,26 @@ class _DraftSheetState extends State<DraftSheet> with WidgetsBindingObserver {
                           'Review both versions before applying the suggestion.',
                         ),
                         const SizedBox(height: 8),
-                        _comparison(
-                          context,
-                          'Original text',
-                          _session.suggestionSource!,
+                        DraftComparison(
+                          title: 'Original text',
+                          text: _session.suggestionSource!,
+                          ranges: _session.review?.beforeRanges ?? const [],
                         ),
                         const SizedBox(height: 8),
-                        _comparison(
-                          context,
-                          'Cleanup suggestion',
-                          _session.suggestedDraft!,
+                        DraftComparison(
+                          title: 'Cleanup suggestion',
+                          text: _session.suggestedDraft!,
+                          ranges: _session.review?.afterRanges ?? const [],
                         ),
+                        if (_session.review?.needsAcknowledgement ?? false) ...[
+                          const SizedBox(height: 12),
+                          DraftReviewNotice(
+                            key: const Key('protected-change-review'),
+                            review: _session.review!,
+                            acknowledged: _session.changesAcknowledged,
+                            onChanged: _session.acknowledgeChanges,
+                          ),
+                        ],
                         Align(
                           alignment: Alignment.centerLeft,
                           child: OutlinedButton(
@@ -447,25 +484,6 @@ class _DraftSheetState extends State<DraftSheet> with WidgetsBindingObserver {
       ),
     );
   }
-
-  Widget _comparison(BuildContext context, String title, String text) =>
-      DecoratedBox(
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 6),
-              SelectableText(text),
-            ],
-          ),
-        ),
-      );
 
   Widget _meter(BuildContext context) {
     final level = _session.level;

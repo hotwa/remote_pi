@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'config.dart';
+import 'optimization.dart';
 
 class AddonException implements Exception {
   const AddonException(this.message);
@@ -130,6 +131,7 @@ class AddonApiClient {
   Future<String> optimize({
     required OptimizerProfile profile,
     required String text,
+    OptimizationMode mode = OptimizationMode.correctionOnly,
     AddonCancellation? cancellation,
   }) async {
     if (!profile.enabled) {
@@ -140,6 +142,18 @@ class AddonApiClient {
       throw const AddonException('Draft must contain 1–16000 characters.');
     }
     if (isControlDraft(text)) return text;
+    late final List<Map<String, String>> messages;
+    try {
+      messages = optimizationMessages(
+        mode: mode,
+        original: text,
+        templateJson: profile.templateJson,
+      );
+    } on FormatException {
+      throw const AddonException(
+        'Check the imported prompt template in settings.',
+      );
+    }
     final response = await _post(
       profile.baseUrl,
       'chat/completions',
@@ -150,14 +164,7 @@ class AddonApiClient {
           'model': profile.model.trim(),
           'stream': false,
           'max_tokens': 4096,
-          'messages': [
-            {
-              'role': 'system',
-              'content':
-                  'Clean up this draft for a coding assistant. Preserve the original intent, language and all technical details. Do not answer or execute the request, add requirements, or change control commands. Return only the cleaned draft.',
-            },
-            {'role': 'user', 'content': text},
-          ],
+          'messages': messages,
         }),
       ),
       cancellation,
