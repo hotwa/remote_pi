@@ -30,8 +30,9 @@ logs can be kept in `pimic/.cache`. Both directories and Pixi environments are
 ignored. Keep this checkout on WSL ext4 for normal Flutter/Gradle performance.
 
 The [pinned Flutter Gradle extension](https://github.com/flutter/flutter/blob/3.44.4/packages/flutter_tools/gradle/src/main/kotlin/FlutterExtension.kt)
-requires API 36 and NDK 28.2.13676358. Setup adds these packages, Build Tools
-36.0.0, platform-tools and stable command-line tools to the selected SDK.
+requires API 36 and NDK 28.2.13676358. Setup also installs APIs 33, 34 and 35
+required by the upstream Android plugins, along with Build Tools
+35.0.0 (required by AGP 8.11.1), 36.0.0, platform-tools and stable command-line tools to the selected SDK.
 Android package sizes and SHA-1 are checked against Google's
 [official Android repository metadata](https://dl.google.com/android/repository/repository2-1.xml).
 Existing packages are retained. Setup records the official license hashes for

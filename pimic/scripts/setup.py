@@ -79,7 +79,12 @@ def install_flutter() -> None:
 def install_android(sdk: Path) -> None:
     tree = ET.fromstring(metadata(ANDROID_MANIFEST, 'repository2-1.xml'))
     licenses = {n.attrib['id']: n.text for n in tree.iter('license')}
-    required = ['platforms;android-36', 'build-tools;36.0.0', 'ndk;28.2.13676358', 'platform-tools']
+    required = [
+        'platforms;android-33', 'platforms;android-34',
+        'platforms;android-35', 'platforms;android-36',
+        'build-tools;35.0.0', 'build-tools;36.0.0',
+        'ndk;28.2.13676358', 'platform-tools',
+    ]
     if not (sdk / 'cmdline-tools/latest/bin/sdkmanager').exists():
         stable_tools = [p for p in tree.iter('remotePackage') if p.attrib['path'].startswith('cmdline-tools;') and p.find('channelRef').attrib.get('ref') == 'channel-0']
         required.append(max(stable_tools, key=revision).attrib['path'])
