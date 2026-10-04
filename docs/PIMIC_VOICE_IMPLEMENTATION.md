@@ -28,6 +28,9 @@ APK with another package/signature.
    base URL/model/key. oMLX desktop app may serve this role. Existing service
    keys are never copied automatically; enter a dedicated credential if needed.
 4. Before Pi pairing, use **Test voice / draft tools** for a standalone preview.
+   The same settings/test entries are available on upstream's **Sync required**
+   screen. They use no Pi identity; the original Block Store/Keychain gate and
+   pairing flow remain in place for Pi chat.
 5. In a selected Pi chat, tap the additional microphone-tools icon. Select
    System default or a currently detected built-in, wired or USB input. Tap
    **Record**, speak, then **Stop & transcribe**. The level and input name show
@@ -87,3 +90,25 @@ PIMIC_STT_SMOKE_WAV=/absolute/path/to/recording.wav \
 
 Real phone recording/route, fresh QR pairing and end-to-end user speech should
 be reported separately from fake-client tests and existing-WAV API tests.
+
+### Verified on 2026-10-04
+
+- App analysis: no issues; final app regression suite: 546 passed.
+- Addon Dart suite: 57 passed; existing identity package suite: 17 passed.
+- Android Gradle unit tests: 16 passed. Addon lint: zero errors, one advisory
+  about a newer AGP version; the upstream version remains pinned.
+- ARM64 debug APK built and installed over Wi-Fi ADB on MI 5s Plus / Android 15,
+  alongside the Play Store app. Microphone hardware is explicitly optional.
+- Both switches start off. Saving the prefilled STT URL with switches off left
+  capture/API tools disabled. Secure save and explicit STT enable worked.
+- On the phone, Import WAV selected an existing 2.32-second wired recording,
+  uploaded it to mac7 and displayed **手機語音測試** as raw and editable text.
+  This verifies the phone → STT → phone path, not fresh-speech accuracy.
+- Foreground recording reported actual **h2w (wiredHeadset)** input, PCM RMS,
+  and automatic stop at exactly 60 seconds / 960,000 frames. The ambient clip
+  had no supplied reference utterance and is not counted as an accuracy test.
+- The phone currently remains behind upstream's Sync required gate. Fresh Pi
+  QR pairing and live sending await those upstream prerequisites. The optional
+  voice tools are available independently on that screen.
+- Real prompt cleanup against mac5 was not validated: its LAN port was
+  unavailable. The optimizer is off on the test phone; fake-service tests pass.

@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 
 import 'package:app/config/dependencies.dart';
 import 'package:app/pairing/owner_identity_bridge.dart';
+import 'package:app/pimic_bridge/pimic_widgets.dart';
 import 'package:app/ui/core/themes/themes.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -104,6 +105,9 @@ class _SyncRequiredPageState extends State<SyncRequiredPage> {
                 ),
               ),
               const SizedBox(height: 12),
+              // The optional tools do not use an Owner key or connect to Pi.
+              // Keep their standalone preview available behind the sync gate.
+              PimicSettingsEntry(host: optionalPimicHost),
               FilledButton(
                 onPressed: _checking ? null : _recheck,
                 style: FilledButton.styleFrom(

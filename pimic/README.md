@@ -1,6 +1,7 @@
 # Remote Pi fork tooling (WSL / Linux)
 
-This standalone Pixi environment provides Python 3.11, JDK 17 and aria2.
+This standalone Pixi environment provides Python 3.11, JDK 17, aria2, curl,
+CMake (3.22–3.x) and Ninja (1.11–1.x) for upstream JNI/native-assets builds.
 Dart dependencies remain defined exclusively by the app/package `pubspec.yaml`
 and their lockfiles. No global Python/Dart/Flutter installation is required.
 
@@ -90,3 +91,28 @@ publishes each in Gradle's normal `files-2.1` directory under that SHA-1.
 Publication is atomic and never replaces an existing entry, including when a
 running Gradle build finishes the same download concurrently. It does not
 change Gradle repository configuration or dependency versions.
+
+Flutter's engine repository does not publish SHA-1 sidecars. Merely prefetching
+the engine JAR into Gradle's content cache can therefore still cause another
+large network download. For an optional ARM64 debug build, prepare a narrow local
+Maven repository with the exact engine version used by the pinned Flutter SDK:
+
+```bash
+pixi run --manifest-path pimic/pixi.toml prepare-engine-repo
+# A public mirror may supply JAR bytes; verification always uses official GCS:
+pixi run --manifest-path pimic/pixi.toml prepare-engine-repo --download-base https://storage.flutter-io.cn/download.flutter.io
+pixi run --manifest-path pimic/pixi.toml build-local-engine
+pixi run --manifest-path pimic/pixi.toml native-check-local-engine
+```
+
+Preparation verifies both original POMs and JARs against authoritative Google
+Cloud Storage object metadata (MD5, size and generation), checks POM coordinates,
+and hardlinks the verified files into ignored `pimic/.cache/engine-maven`.
+`verification.json` records the official metadata URLs and hashes. The optional
+Gradle init script applies only to the app Android root, excluding Flutter tool
+included builds that enforce `FAIL_ON_PROJECT_REPOS`. It uses `exclusiveContent` for exactly `io.flutter:arm64_v8a_debug`
+and `io.flutter:flutter_embedding_debug`; all other repositories keep their
+ordinary behavior. These optional tasks verify the prepared bytes again and
+explicitly select `android-arm64`, avoiding additional architecture downloads.
+The existing Flutter `build` task remains unchanged. There are no edits to the
+upstream app's Gradle files or global Gradle repository configuration.
