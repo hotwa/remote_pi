@@ -1,4 +1,6 @@
 import 'package:app/data/preferences/preferences.dart';
+import 'package:app/config/dependencies.dart';
+import 'package:app/pimic_bridge/pimic_widgets.dart';
 import 'package:app/data/transport/relay_config.dart';
 import 'package:app/pairing/storage.dart';
 import 'package:app/ui/core/themes/themes.dart';
@@ -48,6 +50,8 @@ class SettingsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
+          PimicSettingsEntry(host: optionalPimicHost),
+          Divider(color: colors.border, height: 1),
           const _RelaySection(),
           Divider(color: colors.border, height: 1),
           const _DisplaySection(),

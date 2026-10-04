@@ -1,4 +1,6 @@
 import 'package:app/data/preferences/preferences.dart';
+import 'package:app/config/dependencies.dart';
+import 'package:app/pimic_bridge/pimic_widgets.dart';
 import 'package:app/domain/session_state.dart';
 import 'package:app/pairing/storage.dart';
 import 'package:app/protocol/protocol.dart';
@@ -433,6 +435,13 @@ class ChatPage extends StatelessWidget {
         !isPresenceOffline;
 
     return InputBar(
+      addonBuilder: (controller, disabled) => PimicComposerTool(
+        host: optionalPimicHost,
+        controller: controller,
+        disabled: disabled,
+        target: context.read<Preferences>().selectedRoomRaw,
+        currentTarget: () => context.read<Preferences>().selectedRoomRaw,
+      ),
       disabled:
           !isReady ||
           isOffline ||

@@ -1,3 +1,8 @@
+> **PiMic personal fork:** optional LAN speech recognition and draft cleanup,
+> disabled by default. [Configure/use](docs/PIMIC_VOICE_IMPLEMENTATION.md) ·
+> [Pixi setup/build](pimic/README.md). The implementation lives in a separate
+> addon; upstream chat, pairing and send behavior remain in place.
+
 <p align="center">
   <img src="branding/logo-full.svg" width="140" alt="Remote Pi logo" />
 </p>

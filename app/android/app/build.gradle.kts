@@ -37,6 +37,8 @@ android {
 
     defaultConfig {
         applicationId = "work.jacobmoura.remotepi"
+        // Personal development fork: coexist with the Play Store app.
+        applicationIdSuffix = ".pimic"
         // plan/23 § "Versão mínima Android" — the remote_pi_identity
         // plugin requires API 34 (Block Store + modern biometry), so
         // the app inherits the same floor. Bump intentional, recorded

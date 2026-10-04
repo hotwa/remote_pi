@@ -42,6 +42,10 @@ class InputBar extends StatefulWidget {
   final VoidCallback? onOpenQuickActions;
   final VoidCallback? onStartAudio;
 
+  /// Optional independent draft tools; null preserves the upstream composer.
+  final Widget Function(TextEditingController controller, bool disabled)?
+      addonBuilder;
+
   /// Pi-side queued follow-ups. Empty means no queued messages.
   final List<QueuedMsg> queuedMessages;
   final void Function(String text)? onSetQueued;
@@ -69,6 +73,7 @@ class InputBar extends StatefulWidget {
     this.onCancel,
     this.onOpenQuickActions,
     this.onStartAudio,
+    this.addonBuilder,
     this.queuedMessages = const [],
     this.onSetQueued,
     this.onClearQueued,
@@ -356,6 +361,8 @@ class _InputBarState extends State<InputBar> {
                 ),
               Row(
                 children: [
+                  if (widget.addonBuilder != null)
+                    widget.addonBuilder!(_controller, !canInteract || showStrip),
                   _QuickActionsButton(
                     show: showQuickActions,
                     onPressed: widget.onOpenQuickActions,

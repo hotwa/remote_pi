@@ -1,0 +1,21 @@
+[workspace]
+name = "pimic-remote-pi-tools"
+version = "0.1.0"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.11.*"
+openjdk = "17.*"
+aria2 = "1.37.*"
+
+[tasks]
+setup = "python scripts/setup.py"
+pub-get = "python scripts/flutter.py pub get"
+analyze = "python scripts/flutter.py analyze"
+test = "python scripts/flutter.py test"
+build = "python scripts/flutter.py build apk --debug"
+run-package-tests = "python scripts/package_tests.py"
+doctor = "python scripts/flutter.py doctor -v"
+native-check = "python scripts/gradle.py :pimic_addons:testDebugUnitTest :pimic_addons:lintDebug"
+prefetch-gradle = "python scripts/prefetch_gradle.py"

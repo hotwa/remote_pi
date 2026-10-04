@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:app/config/utils/injector.dart';
+import 'package:app/pimic_bridge/pimic_host.dart';
 import 'package:app/data/actions/actions_repository.dart';
 import 'package:app/data/mesh/mesh_client.dart';
 import 'package:app/data/mesh/mesh_sync_service.dart';
@@ -48,7 +49,18 @@ final _injector = CustomInjector();
 /// Direct injector access — only for bootstrap, tests, and deep-link handlers.
 CustomInjector get injector => _injector;
 
+// Optional in legacy host tests; a missing addon never breaks original chat.
+PimicHost? get optionalPimicHost {
+  try {
+    return _injector.get<PimicHost>();
+  } on Object {
+    return null;
+  }
+}
+
 Future<void> setupDependencies() async {
+  // Lazy: no config reads, API traffic or audio during bootstrap.
+  _injector.addService<PimicHost>(() => PimicHost());
   // Infrastructure singletons
   _injector.addInstance<PairingStorage>(PairingStorage());
 
@@ -204,7 +216,10 @@ Future<void> setupDependencies() async {
       _injector.get<DismissedUpdateStore>(),
       _injector.get<UrlOpener>(),
       currentVersion: appVersion,
-      enabled: Platform.isAndroid,
+      // Fork APKs use a distinct package/signature and cannot install the
+      // official release advertised by the upstream feed.
+      enabled: Platform.isAndroid &&
+          !const bool.fromEnvironment('PIMIC_FORK', defaultValue: true),
     ),
   );
 

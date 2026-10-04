@@ -94,3 +94,8 @@ graphify-out
 marketing/
 
 openspec
+
+# Personal fork signing/configuration never enters the source patch.
+**/android/key.properties
+*.keystore
+*.jks
