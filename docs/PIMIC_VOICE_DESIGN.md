@@ -169,3 +169,7 @@ fork 的 main 跟随上游；实际功能开发放在专门的 addon 分支，�
 5. 多目标：在独立测试实例中验证不同机器上的 Pi；再考虑连续模式、锁屏和其他音频格式。
 
 基线与新功能需分别通过测试。上游许可证声明的不一致、独立签名导致重新绑定等事实保留在 fork 可行性研究中；本设计不会修改上游版权或许可声明。
+
+## Pipecat 可选整合研究
+
+两个子代理已分别核验服务端和移动 SDK。建议保留手机 addon 与稳定的转写/整理接口，把 Pipecat 作为可选服务端引擎；当前 HTTP 草稿流程先复用现有后端。官方目前未公布 Flutter SDK，不能直接把 Android 实时 transport 当作 Flutter WAV 上传模块。多 provider、连续识别和流式事件是后续可利用的能力，默认关闭与原版行为约束继续适用。[完整研究与源码依据](https://github.com/hotwa/remote_pi/blob/pimic/voice-plan/docs/PIMIC_PIPECAT_ASSESSMENT.md)。
