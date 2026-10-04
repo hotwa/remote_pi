@@ -34,6 +34,45 @@ class AddonApiClient {
   static const maxTextCharacters = 16000;
   static const maxResponseBytes = 262144;
 
+  /// Explicit catalog lookup, independent of saved feature enable switches.
+  /// Returning a catalog does not prove that a model supports STT or cleanup.
+  Future<List<String>> listModels({
+    required String baseUrl,
+    String apiKey = '',
+    AddonCancellation? cancellation,
+  }) async {
+    _validate(baseUrl, 'catalog', apiKey);
+    final response = await _request(
+      baseUrl,
+      'models',
+      apiKey,
+      cancellation: cancellation,
+    );
+    final data = response['data'];
+    if (data is! List || data.length > 256) {
+      throw const AddonException('The service returned an invalid model list.');
+    }
+    final models = <String>{};
+    for (final entry in data) {
+      final id = entry is Map ? entry['id'] : null;
+      if (id is! String ||
+          id.trim().isEmpty ||
+          id.length > 256 ||
+          RegExp(r'[\x00-\x1f\x7f-\x9f]').hasMatch(id)) {
+        throw const AddonException(
+          'The service returned an invalid model list.',
+        );
+      }
+      models.add(id.trim());
+    }
+    if (models.isEmpty) {
+      throw const AddonException(
+        'No models were listed. You can enter a model name manually.',
+      );
+    }
+    return List.unmodifiable(models);
+  }
+
   Future<String> transcribe({
     required SttProfile profile,
     required Uint8List wav,
@@ -79,6 +118,12 @@ class AddonApiClient {
       bytes.takeBytes(),
       cancellation,
     );
+    if (response['text'] is String &&
+        (response['text'] as String).trim().isEmpty) {
+      throw const AddonException(
+        'No speech was detected. Check the microphone input and try again.',
+      );
+    }
     return _text(response['text']);
   }
 
@@ -216,7 +261,25 @@ class AddonApiClient {
     String contentType,
     List<int> body,
     AddonCancellation? cancellation,
-  ) async {
+  ) => _request(
+    baseUrl,
+    path,
+    key,
+    method: 'POST',
+    contentType: contentType,
+    body: body,
+    cancellation: cancellation,
+  );
+
+  Future<Map<String, dynamic>> _request(
+    String baseUrl,
+    String path,
+    String key, {
+    String method = 'GET',
+    String? contentType,
+    List<int>? body,
+    AddonCancellation? cancellation,
+  }) async {
     if (cancellation?.isCancelled ?? false) {
       throw const AddonException('Request cancelled.');
     }
@@ -235,14 +298,18 @@ class AddonApiClient {
         final uri = Uri.parse(
           '${baseUrl.trim().replaceFirst(RegExp(r'/+$'), '')}/$path',
         );
-        final request = await client.postUrl(uri);
+        final request = await client.openUrl(method, uri);
         request.followRedirects = false;
-        request.headers.set(HttpHeaders.contentTypeHeader, contentType);
+        if (contentType != null) {
+          request.headers.set(HttpHeaders.contentTypeHeader, contentType);
+        }
         if (key.isNotEmpty) {
           request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $key');
         }
-        request.contentLength = body.length;
-        request.add(body);
+        if (body != null) {
+          request.contentLength = body.length;
+          request.add(body);
+        }
         final response = await request.close();
         if (response.statusCode < 200 || response.statusCode >= 300) {
           throw AddonException(

@@ -41,6 +41,182 @@ void main() {
     apiKey: 'private-key',
   );
 
+  test(
+    'model catalog GET uses explicit base and optional bearer without a model',
+    () async {
+      server.listen((request) async {
+        expect(request.method, 'GET');
+        expect(request.uri.path, '/v1/models');
+        expect(request.headers.value('authorization'), 'Bearer catalog-key');
+        expect(await request.fold<int>(0, (n, bytes) => n + bytes.length), 0);
+        request.response.write(
+          '{"data":[{"id":"model-b"},{"id":"model-a"},{"id":"model-b"}]}',
+        );
+        await request.response.close();
+      });
+      expect(
+        await AddonApiClient().listModels(
+          baseUrl: '$base/',
+          apiKey: 'catalog-key',
+        ),
+        ['model-b', 'model-a'],
+      );
+    },
+  );
+
+  test(
+    'catalog without key omits authorization and rejects malformed IDs',
+    () async {
+      server.listen((request) async {
+        expect(request.headers.value('authorization'), isNull);
+        request.response.write(
+          jsonEncode({
+            'data': [
+              {'id': 'model\nprivate-key'},
+            ],
+          }),
+        );
+        await request.response.close();
+      });
+      await expectLater(
+        AddonApiClient().listModels(baseUrl: base),
+        throwsA(
+          isA<AddonException>().having(
+            (e) => e.message,
+            'sanitized',
+            'The service returned an invalid model list.',
+          ),
+        ),
+      );
+    },
+  );
+
+  test('catalog count is bounded', () async {
+    server.listen((request) async {
+      request.response.write(
+        jsonEncode({
+          'data': List.generate(257, (n) => {'id': 'model$n'}),
+        }),
+      );
+      await request.response.close();
+    });
+    await expectLater(
+      AddonApiClient().listModels(baseUrl: base),
+      throwsA(isA<AddonException>()),
+    );
+  });
+
+  test('catalog redirects are not followed or leak keys', () async {
+    var requests = 0;
+    server.listen((request) async {
+      requests++;
+      request.response.statusCode = 302;
+      request.response.headers.set('location', '$base/other');
+      request.response.write('catalog-key');
+      await request.response.close();
+    });
+    await expectLater(
+      AddonApiClient().listModels(baseUrl: base, apiKey: 'catalog-key'),
+      throwsA(
+        isA<AddonException>().having(
+          (e) => e.message,
+          'status',
+          'Service request failed (HTTP 302).',
+        ),
+      ),
+    );
+    expect(requests, 1);
+  });
+
+  test('missing catalog gives safe HTTP error for manual entry', () async {
+    server.listen((request) async {
+      request.response.statusCode = 404;
+      request.response.write('secret-provider-body');
+      await request.response.close();
+    });
+    await expectLater(
+      AddonApiClient().listModels(baseUrl: base),
+      throwsA(
+        isA<AddonException>().having(
+          (e) => e.message,
+          'status',
+          'Service request failed (HTTP 404).',
+        ),
+      ),
+    );
+  });
+
+  test('catalog timeout and cancellation close requests', () async {
+    final received = Completer<void>();
+    server.listen((request) async {
+      if (!received.isCompleted) received.complete();
+      await request.drain<void>();
+    });
+    await expectLater(
+      AddonApiClient(
+        timeout: const Duration(milliseconds: 50),
+      ).listModels(baseUrl: base),
+      throwsA(
+        isA<AddonException>().having(
+          (e) => e.message,
+          'timeout',
+          'Service request timed out.',
+        ),
+      ),
+    );
+    final cancellation = AddonCancellation();
+    final future = AddonApiClient().listModels(
+      baseUrl: base,
+      cancellation: cancellation,
+    );
+    final check = expectLater(
+      future,
+      throwsA(
+        isA<AddonException>().having(
+          (e) => e.message,
+          'cancel',
+          'Request cancelled.',
+        ),
+      ),
+    );
+    cancellation.cancel();
+    await check;
+  });
+
+  test('invalid catalog URL or key causes no request', () async {
+    var requests = 0;
+    server.listen((request) {
+      requests++;
+      request.response.close();
+    });
+    await expectLater(
+      AddonApiClient().listModels(baseUrl: '$base?key=private'),
+      throwsA(isA<AddonException>()),
+    );
+    await expectLater(
+      AddonApiClient().listModels(baseUrl: base, apiKey: 'bad\nkey'),
+      throwsA(isA<AddonException>()),
+    );
+    expect(requests, 0);
+  });
+
+  test('empty catalog preserves manual entry option', () async {
+    server.listen((request) async {
+      request.response.write('{"data":[]}');
+      await request.response.close();
+    });
+    await expectLater(
+      AddonApiClient().listModels(baseUrl: base),
+      throwsA(
+        isA<AddonException>().having(
+          (e) => e.message,
+          'manual',
+          contains('manually'),
+        ),
+      ),
+    );
+  });
+
   test('transcription posts multipart to configured endpoint', () async {
     final received = Completer<String>();
     server.listen((request) async {
@@ -57,6 +233,29 @@ void main() {
     expect(text, 'hello');
     expect(await received.future, contains('large-v3-turbo'));
   });
+  test(
+    'empty transcription is reported as no speech, not a corrupt service',
+    () async {
+      server.listen((request) async {
+        await request.drain<void>();
+        request.response.write('{"text":"   "}');
+        await request.response.close();
+      });
+      await expectLater(
+        AddonApiClient().transcribe(
+          profile: SttProfile(enabled: true, baseUrl: base),
+          wav: wav(),
+        ),
+        throwsA(
+          isA<AddonException>().having(
+            (e) => e.message,
+            'silence',
+            contains('No speech was detected'),
+          ),
+        ),
+      );
+    },
+  );
   test(
     '59-second WAV with metadata remains within import and upload limits',
     () async {

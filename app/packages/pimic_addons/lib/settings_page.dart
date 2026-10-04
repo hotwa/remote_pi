@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 import 'config.dart';
+import 'api_client.dart';
+import 'model_discovery.dart';
 
 /// Opening this page is an explicit action; no app startup hook is required.
 class AddonSettingsPage extends StatefulWidget {
-  const AddonSettingsPage({super.key, required this.store});
+  const AddonSettingsPage({super.key, required this.store, this.api});
   final AddonConfigStore store;
+  final AddonApiClient? api;
   @override
   State<AddonSettingsPage> createState() => _AddonSettingsPageState();
 }
 
 class _AddonSettingsPageState extends State<AddonSettingsPage> {
+  late final _api =
+      widget.api ?? AddonApiClient(timeout: const Duration(seconds: 15));
   final _sttUrl = TextEditingController();
   final _sttModel = TextEditingController();
   final _language = TextEditingController();
@@ -180,6 +185,14 @@ class _AddonSettingsPageState extends State<AddonSettingsPage> {
                     hint: 'zh / en — leave blank for automatic detection',
                   ),
                   _field(_sttKey, 'API key (optional)', secret: true),
+                  ModelDiscovery(
+                    key: const Key('stt-model-discovery'),
+                    baseUrl: _sttUrl,
+                    apiKey: _sttKey,
+                    model: _sttModel,
+                    api: _api,
+                    enabled: !_saving,
+                  ),
                 ],
               ),
               _section(
@@ -195,6 +208,14 @@ class _AddonSettingsPageState extends State<AddonSettingsPage> {
                   ),
                   _field(_optimizerModel, 'Model'),
                   _field(_optimizerKey, 'API key (optional)', secret: true),
+                  ModelDiscovery(
+                    key: const Key('optimizer-model-discovery'),
+                    baseUrl: _optimizerUrl,
+                    apiKey: _optimizerKey,
+                    model: _optimizerModel,
+                    api: _api,
+                    enabled: !_saving,
+                  ),
                 ],
               ),
               if (_error != null)

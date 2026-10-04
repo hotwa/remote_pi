@@ -27,6 +27,10 @@ APK with another package/signature.
 3. Optionally configure **Draft cleanup** separately with a chat-completions
    base URL/model/key. oMLX desktop app may serve this role. Existing service
    keys are never copied automatically; enter a dedicated credential if needed.
+   **Load models** explicitly queries that profile's `/models` catalog, with
+   its optional key. Choose an ID or keep a manual name. Lookup never enables
+   a tool or saves settings, and a catalog is not an inference capability test.
+   Services without `/models` remain usable through manual model entry.
 4. Before Pi pairing, use **Test voice / draft tools** for a standalone preview.
    The same settings/test entries are available on upstream's **Sync required**
    screen. They use no Pi identity; the original Block Store/Keychain gate and
@@ -56,6 +60,11 @@ Cancel, dismissal, app backgrounding, target-session changes and profile changes
 invalidate work; late results cannot overwrite another session's draft. Editing
 while a request runs preserves the newer edits. Errors preserve the draft.
 Control commands bypass cleanup; users still review every model suggestion.
+An empty STT result now reports no detected speech and preserves the draft.
+Catalog lookup has a 15-second timeout, the same byte/redirect limits as other
+requests, up to 256 IDs, and explicit cancellation. Editing its URL/key,
+backgrounding, closing or saving invalidates pending catalog work. No lookup
+starts when opening settings. Catalogs are transient and never persisted.
 
 ## Upstream maintenance
 
@@ -94,7 +103,7 @@ be reported separately from fake-client tests and existing-WAV API tests.
 ### Verified on 2026-10-04
 
 - App analysis: no issues; final app regression suite: 546 passed.
-- Addon Dart suite: 57 passed; existing identity package suite: 17 passed.
+- Addon Dart suite: 73 passed; existing identity package suite: 17 passed.
 - Android Gradle unit tests: 16 passed. Addon lint: zero errors, one advisory
   about a newer AGP version; the upstream version remains pinned.
 - ARM64 debug APK built and installed over Wi-Fi ADB on MI 5s Plus / Android 15,
@@ -112,3 +121,24 @@ be reported separately from fake-client tests and existing-WAV API tests.
   voice tools are available independently on that screen.
 - Real prompt cleanup against mac5 was not validated: its LAN port was
   unavailable. The optimizer is off on the test phone; fake-service tests pass.
+
+### Continued development without a live speaker
+
+- Added explicit catalog discovery for each profile. API and widget coverage
+  includes no automatic requests/enabling/saving, manual fallback, bounded
+  catalogs, redirection rejection, cancellation and ignoring stale results.
+- Phone `/models` lookup against mac7 correctly reports HTTP 404 with manual
+  entry guidance. The STT service itself remains ready; another known wired-WAV
+  request returned **手機語音測試** in 777 ms.
+- A temporary synthetic HTTP fixture reached over a scoped ADB reverse tunnel
+  returned two model IDs. Selection filled the model field while cleanup stayed
+  off, and did not reopen the keyboard. Enabling cleanup for this explicit test
+  verified the nonstream chat-completions contract, original/suggestion view,
+  explicit application to the draft and standalone return without a Pi send.
+  This validates the phone/API/UI contract, not a real model's editing quality.
+- Restored mac7 STT enabled with `large-v3-turbo`; cleanup is off and its temporary
+  URL/model/key are blank. Removed the test tunnel and stopped the fixture.
+- Final Dart total: **636** (546 app + 73 addon + 17 identity). Analysis and
+  ARM64 debug build pass. Native code was unchanged in this continuation.
+- Charging stay-awake is enabled for debugging. Without external power the
+  existing 30-minute screen timeout remains. Original keyboard was restored.
