@@ -53,6 +53,14 @@ Future<void> flushCleanup(WidgetTester tester) async {
   await tester.pump();
 }
 
+Future<void> requestCleanup(WidgetTester tester) async {
+  await tester.ensureVisible(find.byKey(const Key('optimize-this-draft')));
+  await tester.tap(find.byKey(const Key('optimize-this-draft')));
+  await tester.pumpAndSettle();
+  await tester.ensureVisible(find.byKey(const Key('optimize-draft')));
+  await tester.tap(find.byKey(const Key('optimize-draft')));
+}
+
 class _NativeOwner {
   String? active;
 }
@@ -111,6 +119,149 @@ void main() {
       await tester.tap(find.byKey(const Key('use-draft')));
       await tester.pumpAndSettle();
       expect(result, 'edited text');
+    },
+  );
+
+  testWidgets(
+    'unchecked transcription makes no cleanup request and resets on reopen',
+    (tester) async {
+      final client = FakeClient();
+      final capture = FakeCapture();
+      String? result;
+      await openSheet(
+        tester,
+        capture: capture,
+        client: client,
+        onResult: (value) => result = value,
+      );
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const Key('optimize-this-draft')),
+            )
+            .value,
+        isFalse,
+      );
+      await tester.tap(find.byKey(const Key('import-wav')));
+      await tester.pumpAndSettle();
+      expect(client.sttCalls, 1);
+      expect(client.optimizeCalls, 0);
+      expect(
+        tester
+            .widget<OutlinedButton>(find.byKey(const Key('optimize-draft')))
+            .onPressed,
+        isNull,
+      );
+      await tester.tap(find.byKey(const Key('use-draft')));
+      await tester.pumpAndSettle();
+      await flushCleanup(tester);
+      expect(result, 'raw transcript');
+      expect(client.optimizeCalls, 0);
+
+      await tester.tap(find.text('Open draft'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('optimize-this-draft')));
+      await tester.tap(find.byKey(const Key('optimize-this-draft')));
+      await tester.pumpAndSettle();
+      expect(client.optimizeCalls, 0);
+      await tester.tap(find.byTooltip('Close draft'));
+      await tester.pumpAndSettle();
+      await flushCleanup(tester);
+      await tester.tap(find.text('Open draft'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const Key('optimize-this-draft')),
+            )
+            .value,
+        isFalse,
+      );
+      await tester.tap(find.byTooltip('Close draft'));
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'unchecking cancels cleanup and rejects a late result after reselecting',
+    (tester) async {
+      final client = FakeClient()..optimizeCompletion = Completer<String>();
+      await openSheet(tester, client: client, initialText: 'keep my original');
+      await requestCleanup(tester);
+      await tester.pump();
+      expect(client.optimizeCalls, 1);
+      final cancellation = client.lastCancellation!;
+      await tester.ensureVisible(find.byKey(const Key('optimize-this-draft')));
+      await tester.tap(find.byKey(const Key('optimize-this-draft')));
+      await tester.pumpAndSettle();
+      expect(cancellation.isCancelled, isTrue);
+      await tester.tap(find.byKey(const Key('optimize-this-draft')));
+      await tester.pumpAndSettle();
+      client.optimizeCompletion!.complete('late rewritten text');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('use-suggestion')), findsNothing);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('editable-draft')))
+            .controller!
+            .text,
+        'keep my original',
+      );
+      expect(client.optimizeCalls, 1);
+      await tester.tap(find.byTooltip('Close draft'));
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'unchecking discards a finished suggestion without replacing text',
+    (tester) async {
+      final client = FakeClient();
+      await openSheet(tester, client: client, initialText: 'original text');
+      await requestCleanup(tester);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('use-suggestion')), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('optimize-this-draft')));
+      await tester.tap(find.byKey(const Key('optimize-this-draft')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('optimize-this-draft')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('use-suggestion')), findsNothing);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('editable-draft')))
+            .controller!
+            .text,
+        'original text',
+      );
+      expect(client.optimizeCalls, 1);
+      await tester.tap(find.byTooltip('Close draft'));
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'unconfigured cleanup cannot be selected and text remains usable',
+    (tester) async {
+      final client = FakeClient();
+      String? result;
+      await openSheet(
+        tester,
+        config: const AddonConfig(),
+        client: client,
+        initialText: 'use without extra APIs',
+        onResult: (value) => result = value,
+      );
+      final checkbox = tester.widget<CheckboxListTile>(
+        find.byKey(const Key('optimize-this-draft')),
+      );
+      expect(checkbox.value, isFalse);
+      expect(checkbox.onChanged, isNull);
+      expect(find.byKey(const Key('optimize-draft')), findsNothing);
+      await tester.tap(find.byKey(const Key('use-draft')));
+      await tester.pumpAndSettle();
+      expect(result, 'use without extra APIs');
+      expect(client.optimizeCalls, 0);
     },
   );
 
@@ -195,8 +346,7 @@ void main() {
         initialText: 'original intent',
         onResult: (value) => result = value,
       );
-      await tester.ensureVisible(find.byKey(const Key('optimize-draft')));
-      await tester.tap(find.byKey(const Key('optimize-draft')));
+      await requestCleanup(tester);
       await tester.pumpAndSettle();
       expect(find.text('Original text'), findsOneWidget);
       expect(find.text('original intent'), findsWidgets);
@@ -240,8 +390,7 @@ void main() {
       initialText: 'original',
       onResult: (value) => result = value,
     );
-    await tester.ensureVisible(find.byKey(const Key('optimize-draft')));
-    await tester.tap(find.byKey(const Key('optimize-draft')));
+    await requestCleanup(tester);
     await tester.pump();
     final cancellation = client.lastCancellation!;
     await tester.tap(find.byTooltip('Close draft'));
@@ -345,7 +494,7 @@ void main() {
       targetIsCurrent: () => current,
       onResult: (value) => result = value,
     );
-    await tester.tap(find.byKey(const Key('optimize-draft')));
+    await requestCleanup(tester);
     await tester.pump();
     final cancellation = client.lastCancellation!;
     current = false;
@@ -449,7 +598,7 @@ void main() {
         client: client,
         initialText: 'original',
       );
-      await tester.tap(find.byKey(const Key('optimize-draft')));
+      await requestCleanup(tester);
       await tester.pump();
       await tester.enterText(
         find.byKey(const Key('editable-draft')),

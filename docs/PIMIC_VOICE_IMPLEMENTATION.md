@@ -43,8 +43,11 @@ only after confirmation. See [local identity](PIMIC_LOCAL_IDENTITY.md).
    System default or a currently detected built-in, wired or USB input. Tap
    **Record**, speak, then **Stop & transcribe**. The level and input name show
    actual AudioRecord routing; a requested device is not presented as confirmed.
-6. Review raw transcription and edit the draft. Optionally press **Clean up**,
-   compare the original/suggestion, then explicitly **Use suggestion**.
+6. Review raw transcription and edit the draft. **Optimize this draft** starts
+   unchecked on each opening, even when Draft cleanup is configured. Select it,
+   then explicitly press **Suggest cleanup**, compare the original/suggestion,
+   and **Use suggestion**. Selecting alone makes no API call. Unchecking cancels
+   an in-flight cleanup and discards its suggestion without changing the draft.
 7. **Use draft** returns text to the composer. Press the original Send button
    when ready. Neither transcription nor cleanup sends a Pi command.
 

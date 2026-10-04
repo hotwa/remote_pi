@@ -333,6 +333,22 @@ class DraftSession extends ChangeNotifier {
         ).hasMatch(trimmed);
   }
 
+  /// Opting out cancels only cleanup, leaving recording/transcription untouched.
+  /// A result from the old request must never reappear after opting in again.
+  void cancelOptimization() {
+    if (_disposed) return;
+    if (phase == DraftPhase.optimizing) {
+      _generation++;
+      _request?.cancel();
+      _request = null;
+      phase = DraftPhase.ready;
+    }
+    suggestedDraft = null;
+    suggestionSource = null;
+    _suggestionRevision = null;
+    _notify();
+  }
+
   Future<void> optimize() async {
     if (!canOptimize || !_currentTarget()) return;
     error = null;

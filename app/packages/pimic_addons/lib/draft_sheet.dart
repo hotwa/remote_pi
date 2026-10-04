@@ -92,6 +92,7 @@ class _DraftSheetState extends State<DraftSheet> with WidgetsBindingObserver {
   late final DraftSession _session;
   late final TextEditingController _text;
   bool _closingForTarget = false;
+  bool _optimizeThisDraft = false;
 
   @override
   void initState() {
@@ -116,6 +117,7 @@ class _DraftSheetState extends State<DraftSheet> with WidgetsBindingObserver {
   void didUpdateWidget(covariant DraftSheet oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.config, widget.config)) {
+      _optimizeThisDraft = false;
       unawaited(_session.updateConfig(widget.config));
     }
     if (!(widget.targetIsCurrent?.call() ?? true)) {
@@ -339,12 +341,38 @@ class _DraftSheetState extends State<DraftSheet> with WidgetsBindingObserver {
                           hintText: 'Type here, even without a microphone',
                         ),
                       ),
+                      CheckboxListTile(
+                        key: const Key('optimize-this-draft'),
+                        value: _optimizeThisDraft,
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: const Text('Optimize this draft'),
+                        subtitle: Text(
+                          widget.config.optimizer.enabled
+                              ? 'Optional. Select, then request a suggestion; your original text stays available.'
+                              : 'Configure and enable Draft cleanup in settings to use this option.',
+                        ),
+                        onChanged:
+                            widget.config.optimizer.enabled &&
+                                (!_session.isBusy ||
+                                    _session.phase == DraftPhase.optimizing)
+                            ? (value) {
+                                setState(() {
+                                  _optimizeThisDraft = value ?? false;
+                                });
+                                if (!_optimizeThisDraft) {
+                                  _session.cancelOptimization();
+                                }
+                              }
+                            : null,
+                      ),
                       if (widget.config.optimizer.enabled)
                         Align(
                           alignment: Alignment.centerLeft,
                           child: OutlinedButton.icon(
                             key: const Key('optimize-draft'),
-                            onPressed: _session.canOptimize
+                            onPressed:
+                                _optimizeThisDraft && _session.canOptimize
                                 ? () => unawaited(_session.optimize())
                                 : null,
                             icon: const Icon(Icons.auto_fix_high),
@@ -369,7 +397,8 @@ class _DraftSheetState extends State<DraftSheet> with WidgetsBindingObserver {
                           ),
                         ),
                       ],
-                      if (_session.suggestedDraft != null) ...[
+                      if (_optimizeThisDraft &&
+                          _session.suggestedDraft != null) ...[
                         const SizedBox(height: 12),
                         const Text(
                           'Review both versions before applying the suggestion.',
