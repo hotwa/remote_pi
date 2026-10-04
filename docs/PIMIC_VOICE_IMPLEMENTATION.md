@@ -81,7 +81,7 @@ An explicit LAN smoke test is provided outside the default app test directory:
 
 ```bash
 PIMIC_STT_SMOKE_WAV=/absolute/path/to/recording.wav \
-  pixi run --manifest-path pimic/pixi.toml python scripts/flutter.py \
+  pixi run --manifest-path pimic/pixi.toml python pimic/scripts/flutter.py \
   test ../pimic/integration_test/stt_smoke_test.dart --reporter expanded
 ```
 

@@ -72,3 +72,20 @@ checks the unchanged wrapper URL, then publishes the ZIP under Gradle's normal
 wrapper cache directory while holding its POSIX record lock. It does not change
 wrapper properties or other cached Gradle versions. Stop an active wrapper
 before publishing; a held wrapper lock causes prefetch to fail safely.
+
+Large Kotlin compiler downloads can also be prefetched from official Maven
+Central after `pub-get` has generated the plugin metadata:
+
+```bash
+pixi run --manifest-path pimic/pixi.toml prefetch-kotlin
+# Or prepare a specific version:
+pixi run --manifest-path pimic/pixi.toml prefetch-kotlin --version 2.2.20
+```
+
+The helper reads the app and installed Android plugin Gradle declarations to
+find Kotlin versions. It downloads only `kotlin-compiler-embeddable` JARs using
+parallel aria2, verifies each against the official Maven Central `.sha1`, and
+publishes each in Gradle's normal `files-2.1` directory under that SHA-1.
+Publication is atomic and never replaces an existing entry, including when a
+running Gradle build finishes the same download concurrently. It does not
+change Gradle repository configuration or dependency versions.
