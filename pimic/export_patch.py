@@ -11,6 +11,7 @@ GROUPS = {
                    'app/lib/routing/app_router.dart',
                    'app/lib/ui/chat/chat_page.dart',
                    'app/lib/ui/chat/widgets/input_bar.dart',
+                   'app/lib/ui/home/home_page.dart',
                    'app/lib/ui/settings/settings_page.dart',
                    'app/lib/ui/sync_required/sync_required_page.dart'],
     'local-identity.patch': ['app/lib/pimic_bridge/identity',

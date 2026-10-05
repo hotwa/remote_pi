@@ -160,6 +160,7 @@ GoRouter buildRouter(
     watcherInstalled = true;
     ownerBridge.startWatching(
       onReset: () async {
+        optionalPimicHost?.clearWorkspaceCache();
         await conn.disconnect();
         meshSync.resetVersionWatermark();
         boot.onOwnerKeyReplaced();
@@ -370,6 +371,9 @@ GoRouter buildRouter(
               ViewmodelProvider<AttachmentViewModel>(),
             ],
             child: ChatPage(
+              initialTarget: extra is Map && extra['target'] is String
+                  ? extra['target'] as String
+                  : ctx.read<Preferences>().selectedRoomRaw,
               initialTitle: initialTitle,
               initialDevice: initialDevice,
               initialOnline: initialOnline,
@@ -410,6 +414,7 @@ class _DetailPane extends StatelessWidget {
         ViewmodelProvider<AttachmentViewModel>(),
       ],
       child: ChatPage(
+        initialTarget: '${sel.current!.epk}:${sel.current!.roomId}',
         initialTitle: sel.current!.title,
         initialDevice: sel.current!.device.isEmpty ? null : sel.current!.device,
         initialOnline: sel.current!.online,

@@ -7,14 +7,22 @@ class PimicHost extends ChangeNotifier implements Service {
   PimicHost({AddonConfigStore? store}) : store = store ?? AddonConfigStore();
 
   final AddonConfigStore store;
+  final workspaceMemory = WorkspaceMemory();
   AddonConfig _config = const AddonConfig();
   Future<void>? _loading;
   bool _disposed = false;
   int _revision = 0;
+  int _workspaceGeneration = 0;
+  int get workspaceGeneration => _workspaceGeneration;
 
   AddonConfig get config => _config;
   int get revision => _revision;
   bool get enabled => _config.stt.enabled || _config.optimizer.enabled;
+  bool get workspaceEnabled => _config.workspaceToolsEnabled;
+  void clearWorkspaceCache() {
+    _workspaceGeneration++;
+    workspaceMemory.clear();
+  }
 
   // Called on entering chat/tools, never from app bootstrap. Storage only.
   Future<void> ensureLoaded() => _loading ??= _load();
@@ -32,12 +40,14 @@ class PimicHost extends ChangeNotifier implements Service {
     _revision++;
     _config = config;
     _loading = Future<void>.value();
+    if (!workspaceEnabled) clearWorkspaceCache();
     notifyListeners();
   }
 
   @override
   void dispose() {
     _disposed = true;
+    clearWorkspaceCache();
     super.dispose();
   }
 }

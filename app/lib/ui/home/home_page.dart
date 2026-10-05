@@ -543,7 +543,12 @@ class HomePage extends StatelessWidget {
     if (!isWideLayout(context)) {
       context.push(
         '/chat',
-        extra: {'title': title, 'device': device, 'online': online},
+        extra: {
+          'title': title,
+          'device': device,
+          'online': online,
+          'target': '${peer.remoteEpk}:${room.roomId}',
+        },
       );
     }
   }

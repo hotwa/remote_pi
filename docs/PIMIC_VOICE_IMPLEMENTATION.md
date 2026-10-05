@@ -191,3 +191,25 @@ be reported separately from fake-client tests and existing-WAV API tests.
   phone retained its local pairing identity and Relay settings. No real mac5
   optimizer quality or new spoken accuracy test is claimed for this update.
 - Native capture, Pi extension, transport and upstream send code were unchanged.
+
+### Optional workspace tools — version 12
+
+- A third independent default-off setting enables grouped/searchable paired
+  targets, run-local favorites, bounded per-target draft/scroll memory and a
+  persistent entry to the existing typed Pi Quick Actions. No model API required.
+- Selection uses the existing Home path and a stable peer/room route target.
+  Recording/transcribing/media blocks switching. Target, settings or identity
+  changes dismiss a pending picker. No switch sends a prompt or stops another Pi.
+- App 572, addon 107, original identity 17: **696 Dart tests**. Analysis passed
+  and ARM64 debug versionCode 12 built. New tests exercise route replacement,
+  separate drafts, sent-draft clearing, memory limits, scroll restoration,
+  selection races, identity reset and default-off compatibility.
+- The native recorder, Pi extension, protocol and original send handler remain
+  unchanged. Historical-session restore and arbitrary slash commands are pending.
+- Details: [workspace guide](PIMIC_WORKSPACES.md).
+- mac5 desktop oMLX 0.7.0 loopback tests used the existing Qwen3.8-27B model,
+  three written inputs and both modes. Final warm medians: correction 1.313 s,
+  rewriting 4.963 s; first cold request 64.506 s. Non-thinking was requested
+  per call; no global service/configuration or credentials were changed.
+  Rewriting rules were tightened after observed translation/added requirements.
+  Small probes do not establish speech accuracy or semantic equivalence.

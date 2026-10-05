@@ -26,6 +26,7 @@ class _AddonSettingsPageState extends State<AddonSettingsPage> {
   final _optimizerTemplate = TextEditingController();
   bool _sttEnabled = false,
       _optimizerEnabled = false,
+      _workspaceEnabled = false,
       _loading = true,
       _saving = false;
   String? _error;
@@ -59,6 +60,7 @@ class _AddonSettingsPageState extends State<AddonSettingsPage> {
     setState(() {
       _sttEnabled = config.stt.enabled;
       _optimizerEnabled = config.optimizer.enabled;
+      _workspaceEnabled = config.workspaceToolsEnabled;
       _loading = false;
     });
   }
@@ -73,6 +75,7 @@ class _AddonSettingsPageState extends State<AddonSettingsPage> {
 
   Future<void> _save() async {
     final config = AddonConfig(
+      workspaceToolsEnabled: _workspaceEnabled,
       stt: SttProfile(
         enabled: _sttEnabled,
         baseUrl: _sttUrl.text.trim(),
@@ -168,7 +171,7 @@ class _AddonSettingsPageState extends State<AddonSettingsPage> {
             padding: const EdgeInsets.all(20),
             children: [
               const Text(
-                'Optional tools use your configured services. Both are off by default. Saving a URL does not enable a tool. Results return to your draft for review.',
+                'Speech and draft tools use your configured services. All optional tools are off by default. Saving a URL does not enable a tool. Results return to your draft for review.',
               ),
               const SizedBox(height: 20),
               _section(
@@ -225,6 +228,16 @@ class _AddonSettingsPageState extends State<AddonSettingsPage> {
                     controller: _optimizerTemplate,
                     enabled: !_saving,
                   ),
+                ],
+              ),
+              _section(
+                title: '目标切换与草稿缓存（可选）',
+                subtitle:
+                    '常驻切换目标和 Pi 操作按钮。按机器、项目分组并搜索；本次运行中保存各会话草稿、滚动位置和收藏。无需模型 API。',
+                enabled: _workspaceEnabled,
+                toggle: (value) => setState(() => _workspaceEnabled = value),
+                fields: const [
+                  Text('默认关闭。缓存最多 32 个目标；重启或关闭此功能后清除。附件和录音不会跨目标搬移。'),
                 ],
               ),
               if (_error != null)

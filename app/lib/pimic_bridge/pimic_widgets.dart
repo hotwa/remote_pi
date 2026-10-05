@@ -132,7 +132,7 @@ class PimicSettingsEntry extends StatelessWidget {
           style: TextStyle(color: context.colors.text),
         ),
         subtitle: Text(
-          'Optional · both tools off by default',
+          'Optional · tools off by default',
           style: TextStyle(color: context.colors.muted),
         ),
         onTap: host == null ? null : () => _settings(context),

@@ -45,13 +45,16 @@ class AddonConfig {
   const AddonConfig({
     this.stt = const SttProfile(),
     this.optimizer = const OptimizerProfile(),
+    this.workspaceToolsEnabled = false,
   });
   final SttProfile stt;
   final OptimizerProfile optimizer;
+  final bool workspaceToolsEnabled;
   Map<String, Object> toJson() => {
     'version': 1,
     'stt': stt.toJson(),
     'optimizer': optimizer.toJson(),
+    'workspaceToolsEnabled': workspaceToolsEnabled,
   };
 
   factory AddonConfig.fromJson(Map<String, dynamic> json) {
@@ -61,6 +64,7 @@ class AddonConfig {
     final s = json['stt'] as Map<String, dynamic>;
     final o = json['optimizer'] as Map<String, dynamic>;
     final config = AddonConfig(
+      workspaceToolsEnabled: json['workspaceToolsEnabled'] as bool? ?? false,
       stt: SttProfile(
         enabled: s['enabled'] as bool,
         baseUrl: s['baseUrl'] as String,
