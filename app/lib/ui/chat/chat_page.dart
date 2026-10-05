@@ -1,4 +1,7 @@
 import 'package:app/data/preferences/preferences.dart';
+import 'package:app/config/dependencies.dart';
+import 'package:app/pimic_bridge/pimic_widgets.dart';
+import 'package:app/pimic_bridge/workspace_widgets.dart';
 import 'package:app/domain/session_state.dart';
 import 'package:app/pairing/storage.dart';
 import 'package:app/protocol/protocol.dart';
@@ -9,6 +12,7 @@ import 'package:app/ui/chat/attachment/viewmodels/attachment_viewmodel.dart';
 import 'package:app/ui/chat/states/chat_state.dart';
 import 'package:app/ui/chat/viewmodels/chat_viewmodel.dart';
 import 'package:app/ui/chat/voice/viewmodels/voice_input_viewmodel.dart';
+import 'package:app/ui/chat/voice/states/voice_input_state.dart';
 import 'package:app/ui/chat/widgets/attach_sheet.dart';
 import 'package:app/ui/chat/widgets/input_bar.dart';
 import 'package:app/ui/chat/widgets/message_bubble.dart';
@@ -47,6 +51,7 @@ class ChatPage extends StatelessWidget {
   /// detail pane (no navigation stack to pop back to). Hides the back
   /// arrow; defaults to `true` for the phone full-screen route.
   final bool showBack;
+  final String? initialTarget;
 
   const ChatPage({
     super.key,
@@ -54,6 +59,7 @@ class ChatPage extends StatelessWidget {
     this.initialDevice,
     this.initialOnline = false,
     this.showBack = true,
+    this.initialTarget,
   });
 
   @override
@@ -239,6 +245,37 @@ class ChatPage extends StatelessWidget {
               ],
             ),
           ),
+          PimicWorkspaceActions(
+            host: optionalPimicHost,
+            target:
+                initialTarget ?? context.read<Preferences>().selectedRoomRaw,
+            blockReason: () {
+              if (context.read<AttachmentViewModel>().state
+                  is! AttachmentEmpty) {
+                return '先发送或移除附件，再切换目标。';
+              }
+              final voice = context.read<VoiceInputViewModel>().state;
+              if (voice is VoiceRecording || voice is VoiceTranscribing) {
+                return '先结束录音或等待转写完成，再切换目标。';
+              }
+              return null;
+            },
+            onActions:
+                (initialTarget == null ||
+                        workspaceKey(
+                              context.read<Preferences>().selectedRoomRaw,
+                            ) ==
+                            workspaceKey(initialTarget)) &&
+                    state is ChatReady &&
+                    !state.isOffline &&
+                    !state.pairingRevoked &&
+                    state.peerOfflineReason == null &&
+                    state.peerPresence is! PresenceOffline &&
+                    !isWorking
+                ? () => showQuickActionsSheet(context)
+                : null,
+            actionsReason: isWorking ? 'Pi 正在运行；结束后可操作' : '连接目标 Pi 后可操作',
+          ),
           // Plan/32g follow-up: ALWAYS render the info button. Gating it on the
           // async PeerRecord made it pop in on load → an AppBar layout shift
           // (the flicker the user saw). Title + device already render from the
@@ -399,10 +436,15 @@ class ChatPage extends StatelessWidget {
             message: 'Nothing here',
           );
         }
-        return _MessageList(
-          messages: visible,
-          streaming: streaming,
-          onDecide: (id, decision) => vm.approveTool(id, decision),
+        return PimicWorkspaceHistory(
+          host: optionalPimicHost,
+          target: initialTarget ?? context.read<Preferences>().selectedRoomRaw,
+          builder: (controller) => _MessageList(
+            scrollController: controller,
+            messages: visible,
+            streaming: streaming,
+            onDecide: (id, decision) => vm.approveTool(id, decision),
+          ),
         );
       }(),
     };
@@ -432,38 +474,55 @@ class ChatPage extends StatelessWidget {
         !isPeerOffline &&
         !isPresenceOffline;
 
-    return InputBar(
-      disabled:
-          !isReady ||
-          isOffline ||
-          isRevoked ||
-          isPeerOffline ||
-          isPresenceOffline,
-      streaming: isWorking,
-      onCancel: cancelId != null ? () => vm.cancel(cancelId) : null,
-      onOpenQuickActions: actionsEnabled
-          ? () => showQuickActionsSheet(context)
-          : null,
-      queuedMessages: isReady ? state.queuedMessages : const [],
-      onSetQueued: vm.queueMessage,
-      onClearQueued: vm.clearQueuedMessage,
-      // Plan/29 — hold-to-talk voice input. The VM is route-scoped (bound in
-      // app_router alongside ChatViewModel); InputBar listens to it directly,
-      // so a read() is enough here.
-      voice: context.read<VoiceInputViewModel>(),
-      onVoiceHint: (hint) => _handleVoiceHint(context, hint),
-      // Plan/30 — image attachments. takeImageForSend() reads + clears the
-      // attached image so the inline image rides along with the (optionally
-      // empty) caption. Attach-button gating by vision / already-attached is
-      // internal to InputBar; the host only gates by channel availability.
-      attachment: context.read<AttachmentViewModel>(),
-      onOpenAttach: actionsEnabled
-          ? () => _openAttach(context, context.read<AttachmentViewModel>())
-          : null,
-      onSend: (text) {
-        final image = context.read<AttachmentViewModel>().takeImageForSend();
-        vm.sendMessage(text, image: image);
-      },
+    final target = initialTarget ?? context.read<Preferences>().selectedRoomRaw;
+    return PimicWorkspaceComposer(
+      host: optionalPimicHost,
+      target: target,
+      currentTarget: () => context.read<Preferences>().selectedRoomRaw,
+      builder: (key, draft, changed, current) => InputBar(
+        draftTarget: key,
+        initialDraft: draft,
+        onDraftChanged: changed,
+        addonBuilder: (controller, disabled) => PimicComposerTool(
+          host: optionalPimicHost,
+          controller: controller,
+          disabled: disabled,
+          target: target,
+          currentTarget: () => context.read<Preferences>().selectedRoomRaw,
+        ),
+        disabled:
+            !current ||
+            !isReady ||
+            isOffline ||
+            isRevoked ||
+            isPeerOffline ||
+            isPresenceOffline,
+        streaming: isWorking,
+        onCancel: cancelId != null ? () => vm.cancel(cancelId) : null,
+        onOpenQuickActions: actionsEnabled
+            ? () => showQuickActionsSheet(context)
+            : null,
+        queuedMessages: isReady ? state.queuedMessages : const [],
+        onSetQueued: vm.queueMessage,
+        onClearQueued: vm.clearQueuedMessage,
+        // Plan/29 — hold-to-talk voice input. The VM is route-scoped (bound in
+        // app_router alongside ChatViewModel); InputBar listens to it directly,
+        // so a read() is enough here.
+        voice: context.read<VoiceInputViewModel>(),
+        onVoiceHint: (hint) => _handleVoiceHint(context, hint),
+        // Plan/30 — image attachments. takeImageForSend() reads + clears the
+        // attached image so the inline image rides along with the (optionally
+        // empty) caption. Attach-button gating by vision / already-attached is
+        // internal to InputBar; the host only gates by channel availability.
+        attachment: context.read<AttachmentViewModel>(),
+        onOpenAttach: actionsEnabled
+            ? () => _openAttach(context, context.read<AttachmentViewModel>())
+            : null,
+        onSend: (text) {
+          final image = context.read<AttachmentViewModel>().takeImageForSend();
+          vm.sendMessage(text, image: image);
+        },
+      ),
     );
   }
 
@@ -567,11 +626,13 @@ class _MessageList extends StatelessWidget {
   final List<ChatMessage> messages;
   final StreamingMessage? streaming;
   final void Function(String, ApproveDecision) onDecide;
+  final ScrollController? scrollController;
 
   const _MessageList({
     required this.messages,
     required this.streaming,
     required this.onDecide,
+    this.scrollController,
   });
 
   @override
@@ -583,6 +644,7 @@ class _MessageList extends StatelessWidget {
     // needed. The previous animateTo-on-every-rebuild fought this and caused
     // overlapping animations (flicker / runaway scroll) during streaming.
     return ListView.separated(
+      controller: scrollController,
       reverse: true,
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 12),
       itemCount: itemCount,

@@ -1,0 +1,20 @@
+name: pimic_addons
+description: Optional independent transcription and draft cleanup for Remote Pi.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: '>=3.11.5 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_secure_storage: ^9.0.0
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: dev.pimic.addons
+        pluginClass: PimicAddonsPlugin

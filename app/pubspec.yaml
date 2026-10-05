@@ -16,7 +16,7 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.2.0+8
+version: 1.2.0+12
 
 environment:
   sdk: ^3.11.5
@@ -51,6 +51,10 @@ dependencies:
   # Keychain / Android Block Store. Local path dep, not pub.dev.
   remote_pi_identity:
     path: packages/remote_pi_identity
+
+  # Optional, isolated PiMic voice / draft tools. Disabled by default.
+  pimic_addons:
+    path: packages/pimic_addons
 
   # Plan 24 — HTTP client for the mesh_versions endpoint on the relay.
   dio: ^5.7.0

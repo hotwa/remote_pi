@@ -2,6 +2,9 @@ import 'dart:io' show Platform;
 
 import 'package:app/config/dependencies.dart';
 import 'package:app/pairing/owner_identity_bridge.dart';
+import 'package:app/pairing/storage.dart';
+import 'package:app/pimic_bridge/identity/local_identity_entry.dart';
+import 'package:app/pimic_bridge/pimic_widgets.dart';
 import 'package:app/ui/core/themes/themes.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -12,7 +15,9 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 /// not available. The app cannot proceed without it because the Owner
 /// Ed25519 keypair has no other persistence path.
 class SyncRequiredPage extends StatefulWidget {
-  const SyncRequiredPage({super.key});
+  const SyncRequiredPage({super.key, this.reloadBoot});
+
+  final Future<void> Function()? reloadBoot;
 
   @override
   State<SyncRequiredPage> createState() => _SyncRequiredPageState();
@@ -28,6 +33,10 @@ class _SyncRequiredPageState extends State<SyncRequiredPage> {
     if (!mounted) return;
     setState(() => _checking = false);
     if (result is! SyncUnavailableResult) {
+      // The router caches its earlier sync verdict. Re-evaluate the complete
+      // boot before navigation, including the watcher and pairing inventory.
+      await widget.reloadBoot?.call();
+      if (!mounted) return;
       // Bounce through /boot so the router's redirect logic re-evaluates
       // (pairs-empty → /onboarding, pairs-non-empty → /home).
       context.go('/boot');
@@ -104,6 +113,20 @@ class _SyncRequiredPageState extends State<SyncRequiredPage> {
                 ),
               ),
               const SizedBox(height: 12),
+              // The optional tools do not use an Owner key or connect to Pi.
+              // Keep their standalone preview available behind the sync gate.
+              PimicSettingsEntry(host: optionalPimicHost),
+              if (optionalPimicIdentityStore case final store?)
+                LocalIdentityEntry(
+                  activate: () => store.activateLocal(
+                    mayCreate: () async =>
+                        injector.get<OwnerIdentityBridge>().currentIdentity ==
+                            null &&
+                        (await injector.get<PairingStorage>().listPeers())
+                            .isEmpty,
+                  ),
+                  onReady: _recheck,
+                ),
               FilledButton(
                 onPressed: _checking ? null : _recheck,
                 style: FilledButton.styleFrom(
@@ -157,7 +180,8 @@ const _androidRequirements = <_Requirement>[
   ),
   _Requirement(
     title: 'Turn on Google Backup',
-    path: 'Settings › System › Backup\n'
+    path:
+        'Settings › System › Backup\n'
         '(Samsung: Settings › Accounts and backup › Backup data)',
   ),
   _Requirement(

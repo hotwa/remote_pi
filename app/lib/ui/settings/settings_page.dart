@@ -1,4 +1,7 @@
 import 'package:app/data/preferences/preferences.dart';
+import 'package:app/config/dependencies.dart';
+import 'package:app/pimic_bridge/pimic_widgets.dart';
+import 'package:app/pimic_bridge/identity/local_identity_entry.dart';
 import 'package:app/data/transport/relay_config.dart';
 import 'package:app/pairing/storage.dart';
 import 'package:app/ui/core/themes/themes.dart';
@@ -48,6 +51,10 @@ class SettingsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
+          if (optionalPimicIdentityStore case final store?)
+            LocalIdentityStatus(isLocal: store.isLocal),
+          PimicSettingsEntry(host: optionalPimicHost),
+          Divider(color: colors.border, height: 1),
           const _RelaySection(),
           Divider(color: colors.border, height: 1),
           const _DisplaySection(),
@@ -280,14 +287,8 @@ class _DisplaySection extends StatelessWidget {
                       value: ThemeMode.system,
                       label: Text('System'),
                     ),
-                    ButtonSegment(
-                      value: ThemeMode.light,
-                      label: Text('Light'),
-                    ),
-                    ButtonSegment(
-                      value: ThemeMode.dark,
-                      label: Text('Dark'),
-                    ),
+                    ButtonSegment(value: ThemeMode.light, label: Text('Light')),
+                    ButtonSegment(value: ThemeMode.dark, label: Text('Dark')),
                   ],
                   selected: {prefs.themeMode},
                   onSelectionChanged: (s) => prefs.setThemeMode(s.first),

@@ -6,15 +6,18 @@
          lets the app detect offline state without polling. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
-    <!-- Plan 29 — voice input. RECORD_AUDIO feeds on-device speech
-         recognition; audio is transcribed locally and never written to a
-         file nor sent to any server. -->
+    <!-- Original on-device recognition and optional, explicitly enabled
+         PiMic capture share this permission. Text and WAV import do not
+         require microphone hardware. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-feature android:name="android.hardware.microphone" android:required="false"/>
     <!-- Plan 30 — image attachments. CAMERA covers the photo-capture path;
          the gallery uses the Android Photo Picker (no storage permission). -->
     <uses-permission android:name="android.permission.CAMERA"/>
     <application
-        android:label="Remote Pi"
+        android:label="PiMic Remote"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="true"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

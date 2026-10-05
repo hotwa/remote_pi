@@ -42,6 +42,15 @@ class InputBar extends StatefulWidget {
   final VoidCallback? onOpenQuickActions;
   final VoidCallback? onStartAudio;
 
+  /// Optional independent draft tools; null preserves the upstream composer.
+  final Widget Function(TextEditingController controller, bool disabled)?
+  addonBuilder;
+
+  /// Optional local draft seam; null keeps the upstream composer behavior.
+  final String? draftTarget;
+  final String initialDraft;
+  final ValueChanged<String>? onDraftChanged;
+
   /// Pi-side queued follow-ups. Empty means no queued messages.
   final List<QueuedMsg> queuedMessages;
   final void Function(String text)? onSetQueued;
@@ -69,6 +78,10 @@ class InputBar extends StatefulWidget {
     this.onCancel,
     this.onOpenQuickActions,
     this.onStartAudio,
+    this.addonBuilder,
+    this.draftTarget,
+    this.initialDraft = '',
+    this.onDraftChanged,
     this.queuedMessages = const [],
     this.onSetQueued,
     this.onClearQueued,
@@ -100,11 +113,14 @@ class _InputBarState extends State<InputBar> {
   // whether the user is still holding once `startRecording` resolves — if not
   // (the permission prompt ended the hold), the recording is discarded.
   bool _holding = false;
+  bool _restoringDraft = false;
   StreamSubscription<String>? _transcriptSub;
 
   @override
   void initState() {
     super.initState();
+    if (widget.draftTarget != null) _controller.text = widget.initialDraft;
+    _empty = _controller.text.isEmpty;
     _controller.addListener(_onTextChange);
     _subscribeTranscripts();
   }
@@ -115,6 +131,22 @@ class _InputBarState extends State<InputBar> {
     if (!identical(old.voice, widget.voice)) {
       _transcriptSub?.cancel();
       _subscribeTranscripts();
+    }
+    if (old.draftTarget != widget.draftTarget && widget.draftTarget != null) {
+      if (old.draftTarget == null && _controller.text.isNotEmpty) {
+        widget.onDraftChanged?.call(_controller.text);
+      } else {
+        old.onDraftChanged?.call(_controller.text);
+        _restoringDraft = true;
+        _controller.value = TextEditingValue(
+          text: widget.initialDraft,
+          selection: TextSelection.collapsed(
+            offset: widget.initialDraft.length,
+          ),
+        );
+        _empty = _controller.text.isEmpty;
+        _restoringDraft = false;
+      }
     }
   }
 
@@ -131,6 +163,8 @@ class _InputBarState extends State<InputBar> {
   }
 
   void _onTextChange() {
+    if (_restoringDraft) return;
+    widget.onDraftChanged?.call(_controller.text);
     final next = _controller.text.isEmpty;
     if (next == _empty) return;
     setState(() {
@@ -356,6 +390,11 @@ class _InputBarState extends State<InputBar> {
                 ),
               Row(
                 children: [
+                  if (widget.addonBuilder != null)
+                    widget.addonBuilder!(
+                      _controller,
+                      !canInteract || showStrip,
+                    ),
                   _QuickActionsButton(
                     show: showQuickActions,
                     onPressed: widget.onOpenQuickActions,

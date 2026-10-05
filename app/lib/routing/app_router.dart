@@ -160,6 +160,7 @@ GoRouter buildRouter(
     watcherInstalled = true;
     ownerBridge.startWatching(
       onReset: () async {
+        optionalPimicHost?.clearWorkspaceCache();
         await conn.disconnect();
         meshSync.resetVersionWatermark();
         boot.onOwnerKeyReplaced();
@@ -218,7 +219,16 @@ GoRouter buildRouter(
       // until the bridge reports sync available.
       GoRoute(
         path: '/sync-required',
-        builder: (ctx, st) => const SyncRequiredPage(),
+        builder: (ctx, st) => SyncRequiredPage(
+          reloadBoot: () => boot.load(
+            storage,
+            conn,
+            prefs,
+            ownerBridge,
+            meshSync,
+            installWatcherAfterBoot: installWatcher,
+          ),
+        ),
       ),
 
       // Plan/tablet — adaptive master-detail shell.
@@ -361,6 +371,9 @@ GoRouter buildRouter(
               ViewmodelProvider<AttachmentViewModel>(),
             ],
             child: ChatPage(
+              initialTarget: extra is Map && extra['target'] is String
+                  ? extra['target'] as String
+                  : ctx.read<Preferences>().selectedRoomRaw,
               initialTitle: initialTitle,
               initialDevice: initialDevice,
               initialOnline: initialOnline,
@@ -401,6 +414,7 @@ class _DetailPane extends StatelessWidget {
         ViewmodelProvider<AttachmentViewModel>(),
       ],
       child: ChatPage(
+        initialTarget: '${sel.current!.epk}:${sel.current!.roomId}',
         initialTitle: sel.current!.title,
         initialDevice: sel.current!.device.isEmpty ? null : sel.current!.device,
         initialOnline: sel.current!.online,
